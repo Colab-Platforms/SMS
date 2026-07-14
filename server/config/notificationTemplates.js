@@ -6,38 +6,38 @@
 const NOTIFICATION_TEMPLATES = {
   // 续订提醒
   renewal_reminder: {
-    'zh-CN': {
+    'en-US': {
       telegram: {
-        content: `<b>续订提醒</b>
+        content: `<b>Renewal Reminder</b>
 
-📢 <b>{{name}}</b> 即将到期
+📢 <b>{{name}}</b> is about to expire
 
-📅 到期时间: {{next_billing_date}}
-💰 金额: {{amount}} {{currency}}
-💳 支付方式: {{payment_method}}
-📋 计划: {{plan}}
+📅 Expiration date: {{next_billing_date}}
+💰 Amount: {{amount}} {{currency}}
+💳 Payment method: {{payment_method}}
+📋 Plan: {{plan}}
 
-请及时续订以避免服务中断。`
+Please renew in time to avoid service interruption.`
       },
       email: {
-        subject: '订阅续订提醒 - {{name}}',
-        content: `您好，
+        subject: 'Subscription Renewal Reminder - {{name}}',
+        content: `Hello,
 
-您的订阅服务 "{{name}}" 即将到期。
+Your subscription service "{{name}}" is about to expire.
 
-订阅详情：
-- 服务名称：{{name}}
-- 到期时间：{{next_billing_date}}
-- 续订金额：{{amount}} {{currency}}
-- 支付方式：{{payment_method}}
-- 订阅计划：{{plan}}
+Subscription Details:
+- Service Name: {{name}}
+- Expiration Date: {{next_billing_date}}
+- Renewal Amount: {{amount}} {{currency}}
+- Payment Method: {{payment_method}}
+- Subscription Plan: {{plan}}
 
-请及时续订以避免服务中断。
+Please renew in time to avoid service interruption.
 
-谢谢！`
+Thank you!`
       }
     },
-    'en': {
+    'en-US': {
       telegram: {
         content: `<b>Renewal Reminder</b>
 
@@ -72,38 +72,38 @@ Thank you!`
 
   // 过期警告
   expiration_warning: {
-    'zh-CN': {
+    'en-US': {
       telegram: {
-        content: `<b>⚠️ 订阅过期警告</b>
+        content: `<b>⚠️ Subscription Expiration Warning</b>
 
-🚨 <b>{{name}}</b> 已过期
+🚨 <b>{{name}}</b> has expired
 
-📅 过期时间: {{next_billing_date}}
-💰 金额: {{amount}} {{currency}}
-💳 支付方式: {{payment_method}}
-📋 计划: {{plan}}
+📅 Expiration date: {{next_billing_date}}
+💰 Amount: {{amount}} {{currency}}
+💳 Payment method: {{payment_method}}
+📋 Plan: {{plan}}
 
-请立即续订以恢复服务。`
+Please renew immediately to restore service.`
       },
       email: {
-        subject: '订阅过期警告 - {{name}}',
-        content: `您好，
+        subject: 'Subscription Expiration Warning - {{name}}',
+        content: `Hello,
 
-您的订阅服务 "{{name}}" 已经过期。
+Your subscription service "{{name}}" has expired.
 
-订阅详情：
-- 服务名称：{{name}}
-- 过期时间：{{next_billing_date}}
-- 续订金额：{{amount}} {{currency}}
-- 支付方式：{{payment_method}}
-- 订阅计划：{{plan}}
+Subscription Details:
+- Service Name: {{name}}
+- Expiration Date: {{next_billing_date}}
+- Renewal Amount: {{amount}} {{currency}}
+- Payment Method: {{payment_method}}
+- Subscription Plan: {{plan}}
 
-请立即续订以恢复服务。
+Please renew immediately to restore service.
 
-谢谢！`
+Thank you!`
       }
     },
-    'en': {
+    'en-US': {
       telegram: {
         content: `<b>⚠️ Subscription Expiration Warning</b>
 
@@ -138,38 +138,38 @@ Thank you!`
 
   // 续订成功
   renewal_success: {
-    'zh-CN': {
+    'en-US': {
       telegram: {
-        content: `<b>✅ 续订成功</b>
+        content: `<b>✅ Renewal Successful</b>
 
-🎉 <b>{{name}}</b> 续订成功
+🎉 <b>{{name}}</b> renewed successfully
 
-📅 下次续订: {{next_billing_date}}
-💰 金额: {{amount}} {{currency}}
-💳 支付方式: {{payment_method}}
-📋 计划: {{plan}}
+📅 Next renewal: {{next_billing_date}}
+💰 Amount: {{amount}} {{currency}}
+💳 Payment method: {{payment_method}}
+📋 Plan: {{plan}}
 
-感谢您的续订！`
+Thank you for your renewal!`
       },
       email: {
-        subject: '续订成功确认 - {{name}}',
-        content: `您好，
+        subject: 'Renewal Successful - {{name}}',
+        content: `Hello,
 
-您的订阅服务 "{{name}}" 续订成功。
+Your subscription service "{{name}}" has been renewed successfully.
 
-订阅详情：
-- 服务名称：{{name}}
-- 下次续订：{{next_billing_date}}
-- 续订金额：{{amount}} {{currency}}
-- 支付方式：{{payment_method}}
-- 订阅计划：{{plan}}
+Subscription Details:
+- Service Name: {{name}}
+- Next Renewal: {{next_billing_date}}
+- Renewal Amount: {{amount}} {{currency}}
+- Payment Method: {{payment_method}}
+- Subscription Plan: {{plan}}
 
-感谢您的续订！
+Thank you for your renewal!
 
-谢谢！`
+Thank you!`
       }
     },
-    'en': {
+    'en-US': {
       telegram: {
         content: `<b>✅ Renewal Successful</b>
 
@@ -204,38 +204,38 @@ Thank you!`
 
   // 续订失败
   renewal_failure: {
-    'zh-CN': {
+    'en-US': {
       telegram: {
-        content: `<b>❌ 续订失败</b>
+        content: `<b>❌ Renewal Failed</b>
 
-⚠️ <b>{{name}}</b> 续订失败
+⚠️ <b>{{name}}</b> renewal failed
 
-📅 到期时间: {{next_billing_date}}
-💰 金额: {{amount}} {{currency}}
-💳 支付方式: {{payment_method}}
-📋 计划: {{plan}}
+📅 Expiration date: {{next_billing_date}}
+💰 Amount: {{amount}} {{currency}}
+💳 Payment method: {{payment_method}}
+📋 Plan: {{plan}}
 
-请检查支付方式并重试。`
+Please check your payment method and try again.`
       },
       email: {
-        subject: '续订失败通知 - {{name}}',
-        content: `您好，
+        subject: 'Renewal Failed - {{name}}',
+        content: `Hello,
 
-您的订阅服务 "{{name}}" 续订失败。
+Your subscription service "{{name}}" renewal has failed.
 
-订阅详情：
-- 服务名称：{{name}}
-- 到期时间：{{next_billing_date}}
-- 续订金额：{{amount}} {{currency}}
-- 支付方式：{{payment_method}}
-- 订阅计划：{{plan}}
+Subscription Details:
+- Service Name: {{name}}
+- Expiration Date: {{next_billing_date}}
+- Renewal Amount: {{amount}} {{currency}}
+- Payment Method: {{payment_method}}
+- Subscription Plan: {{plan}}
 
-请检查支付方式并重试。
+Please check your payment method and try again.
 
-谢谢！`
+Thank you!`
       }
     },
-    'en': {
+    'en-US': {
       telegram: {
         content: `<b>❌ Renewal Failed</b>
 
@@ -270,38 +270,38 @@ Thank you!`
 
   // 订阅变更
   subscription_change: {
-    'zh-CN': {
+    'en-US': {
       telegram: {
-        content: `<b>📝 订阅变更通知</b>
+        content: `<b>📝 Subscription Change Notification</b>
 
-🔄 <b>{{name}}</b> 信息已更新
+🔄 <b>{{name}}</b> information updated
 
-📅 下次续订: {{next_billing_date}}
-💰 金额: {{amount}} {{currency}}
-💳 支付方式: {{payment_method}}
-📋 计划: {{plan}}
+📅 Next renewal: {{next_billing_date}}
+💰 Amount: {{amount}} {{currency}}
+💳 Payment method: {{payment_method}}
+📋 Plan: {{plan}}
 
-变更已生效。`
+Changes have taken effect.`
       },
       email: {
-        subject: '订阅变更通知 - {{name}}',
-        content: `您好，
+        subject: 'Subscription Change Notification - {{name}}',
+        content: `Hello,
 
-您的订阅服务 "{{name}}" 信息已更新。
+Your subscription service "{{name}}" information has been updated.
 
-订阅详情：
-- 服务名称：{{name}}
-- 下次续订：{{next_billing_date}}
-- 续订金额：{{amount}} {{currency}}
-- 支付方式：{{payment_method}}
-- 订阅计划：{{plan}}
+Subscription Details:
+- Service Name: {{name}}
+- Next Renewal: {{next_billing_date}}
+- Renewal Amount: {{amount}} {{currency}}
+- Payment Method: {{payment_method}}
+- Subscription Plan: {{plan}}
 
-变更已生效。
+Changes have taken effect.
 
-谢谢！`
+Thank you!`
       }
     },
-    'en': {
+    'en-US': {
       telegram: {
         content: `<b>📝 Subscription Change Notification</b>
 
@@ -342,7 +342,7 @@ Thank you!`
  * @param {string} channel - 通知渠道
  * @returns {Object|null} 模板对象
  */
-function getTemplate(notificationType, language = 'zh-CN', channel = 'telegram') {
+function getTemplate(notificationType, language = 'en-US', channel = 'telegram') {
   const typeTemplates = NOTIFICATION_TEMPLATES[notificationType];
   if (!typeTemplates) {
     return null;
@@ -352,7 +352,7 @@ function getTemplate(notificationType, language = 'zh-CN', channel = 'telegram')
   let langTemplates = typeTemplates[language];
   if (!langTemplates) {
     // 语言回退机制
-    const fallbackLanguages = ['en', 'zh-CN'];
+    const fallbackLanguages = ['en-US', 'zh-CN'];
     for (const fallbackLang of fallbackLanguages) {
       if (fallbackLang !== language && typeTemplates[fallbackLang]) {
         langTemplates = typeTemplates[fallbackLang];
@@ -406,7 +406,7 @@ function getSupportedNotificationTypes() {
  * @param {string} language - 语言代码
  * @returns {Array} 支持的渠道数组
  */
-function getSupportedChannels(notificationType, language = 'zh-CN') {
+function getSupportedChannels(notificationType, language = 'en-US') {
   const typeTemplates = NOTIFICATION_TEMPLATES[notificationType];
   if (!typeTemplates || !typeTemplates[language]) {
     return [];

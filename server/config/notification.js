@@ -23,8 +23,8 @@ module.exports = {
   ),
 
   // 语言设置
-  SUPPORTED_LANGUAGES: ['zh-CN', 'en'],
-  DEFAULT_LANGUAGE: process.env.NOTIFICATION_DEFAULT_LANGUAGE || 'zh-CN',
+  SUPPORTED_LANGUAGES: ['zh-CN', 'en-US'],
+  DEFAULT_LANGUAGE: process.env.NOTIFICATION_DEFAULT_LANGUAGE || 'en-US',
 
   // 时区设置
   SUPPORTED_TIMEZONES: [
@@ -38,7 +38,7 @@ module.exports = {
     'Europe/Paris',
     'UTC'
   ],
-  DEFAULT_TIMEZONE: process.env.SCHEDULER_TIMEZONE || 'Asia/Shanghai',
+  DEFAULT_TIMEZONE: process.env.SCHEDULER_TIMEZONE || 'Asia/Kolkata',
 
   // 调度器设置
   DEFAULT_CHECK_TIME: process.env.SCHEDULER_CHECK_TIME || '09:00',
