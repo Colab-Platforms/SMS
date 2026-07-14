@@ -5,6 +5,7 @@ import {
   type MonthlyCategorySummariesResponse
 } from '@/services/monthlyCategorySummaryApi';
 import { convertCurrency } from '@/utils/currency';
+import { getBaseCurrency } from '@/config/currency';
 
 // 适配API的数据类型定义
 export interface MonthlyExpense {
@@ -46,7 +47,7 @@ export function transformMonthlyCategorySummariesToGroupedData(
   targetCurrency: string
 ): { month: string; monthKey: string; year: number; categories: { [categoryName: string]: number }; total: number }[] {
   // Derive base currency from data (server truth); fallback to first summary or 'CNY'
-  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || 'CNY';
+  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || getBaseCurrency();
   // 按月份分组数据
   const monthlyMap = new Map<string, { categories: Map<string, number>; total: number }>();
 
@@ -103,7 +104,7 @@ export function transformMonthlyCategorySummariesToYearlyGroupedData(
   summariesResponse: MonthlyCategorySummariesResponse,
   targetCurrency: string
 ): { year: number; categories: { [categoryName: string]: number }; total: number }[] {
-  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || 'CNY';
+  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || getBaseCurrency();
   // 按年份分组数据
   const yearlyMap = new Map<number, { categories: Map<string, number>; total: number }>();
 
@@ -175,7 +176,7 @@ export function transformMonthlyCategorySummaries(
 ): MonthlyExpense[] {
   // 按月份分组汇总数据
   const monthlyMap = new Map<string, { amount: number; transactionCount: number }>();
-  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || 'CNY';
+  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || getBaseCurrency();
 
   summariesResponse.summaries.forEach(summary => {
     const monthKey = summary.monthKey;
@@ -314,7 +315,7 @@ export function calculateCategoryExpensesFromNewApi(
 ): CategoryExpense[] {
   const categoryMap = new Map<string, { amount: number; transactionCount: number }>();
   let totalAmount = 0;
-  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || 'CNY';
+  const serverBaseCurrency = summariesResponse.summaries[0]?.baseCurrency || getBaseCurrency();
 
   // 聚合所有月份的分类数据
   summariesResponse.summaries.forEach(summary => {

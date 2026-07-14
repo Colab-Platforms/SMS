@@ -1,4 +1,5 @@
 const { createDatabaseConnection } = require('../config/database');
+const { getBaseCurrency } = require('../config/currencies');
 
 /**
  * User Preference Service
@@ -48,9 +49,9 @@ class UserPreferenceService {
                 // If no rows affected, insert new record
                 const insertQuery = `
                     INSERT OR REPLACE INTO settings (id, language, currency, theme, show_original_currency)
-                    VALUES (1, ?, 'CNY', 'system', 1)
+                    VALUES (1, ?, ?, 'system', 1)
                 `;
-                this.db.prepare(insertQuery).run(language);
+                this.db.prepare(insertQuery).run(language, getBaseCurrency());
             }
 
             console.log(`User language preference updated to: ${language}`);
@@ -75,7 +76,7 @@ class UserPreferenceService {
                 // Return default preferences if not found
                 return {
                     id: userId,
-                    currency: 'CNY',
+                    currency: getBaseCurrency(),
                     theme: 'system',
                     show_original_currency: true,
                     language: 'zh-CN'
@@ -87,7 +88,7 @@ class UserPreferenceService {
             console.error('Error getting user preferences:', error);
             return {
                 id: userId,
-                currency: 'CNY',
+                currency: getBaseCurrency(),
                 theme: 'system',
                 show_original_currency: true,
                 language: 'zh-CN'
@@ -137,7 +138,7 @@ class UserPreferenceService {
                 `;
                 this.db.prepare(insertQuery).run(
                     userId,
-                    preferences.currency || 'CNY',
+                    preferences.currency || getBaseCurrency(),
                     preferences.theme || 'system',
                     preferences.show_original_currency !== undefined ? preferences.show_original_currency : 1,
                     preferences.language || 'zh-CN'

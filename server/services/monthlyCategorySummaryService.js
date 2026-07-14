@@ -9,7 +9,7 @@ const { getBaseCurrency } = require('../config/currencies');
 class MonthlyCategorySummaryService {
     constructor(dbPath) {
         this.db = new Database(dbPath);
-        this.baseCurrency = 'CNY'; // 基础货币
+        this.baseCurrency = getBaseCurrency(); // 基础货币
     }
 
     /**

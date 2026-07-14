@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const { getExchangeRatesForBase } = require('../config/currencies');
 
 class DatabaseMigrations {
   constructor(dbPath) {
@@ -42,6 +43,16 @@ class DatabaseMigrations {
         version: 7,
         name: 'add_admin_users_table',
         up: () => this.migration_007_add_admin_users_table()
+      },
+      {
+        version: 8,
+        name: 'add_inr_currency_support',
+        up: () => this.migration_008_add_inr_currency_support()
+      },
+      {
+        version: 9,
+        name: 'set_inr_as_base_currency',
+        up: () => this.migration_009_set_inr_as_base_currency()
       }
     ];
   }
@@ -352,7 +363,7 @@ class DatabaseMigrations {
         next_billing_date DATE,
         last_billing_date DATE,
         amount DECIMAL(10, 2) NOT NULL,
-        currency TEXT NOT NULL DEFAULT 'CNY',
+        currency TEXT NOT NULL DEFAULT 'INR',
         payment_method_id INTEGER NOT NULL,
         start_date DATE,
         status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'trial', 'cancelled')),
@@ -656,6 +667,76 @@ class DatabaseMigrations {
         console.log('ℹ️  Updated existing admin timestamps');
       }
     }
+  }
+
+  migration_008_add_inr_currency_support() {
+    console.log('📝 Adding INR currency support...');
+
+    // Check if INR currency already exists in exchange_rates
+    const inrExists = this.db.prepare(`
+      SELECT COUNT(*) as count FROM exchange_rates WHERE to_currency = 'INR'
+    `).get();
+
+    if (inrExists.count === 0) {
+      // Add INR exchange rate for default CNY base currency
+      this.db.exec(`
+        INSERT OR IGNORE INTO exchange_rates (from_currency, to_currency, rate) VALUES
+        ('CNY', 'INR', 12.7692);
+      `);
+      console.log('✅ Added INR exchange rate for CNY base currency');
+    } else {
+      console.log('ℹ️  INR exchange rate already exists, skipping...');
+    }
+
+    console.log('✅ INR currency support added successfully');
+  }
+
+  migration_009_set_inr_as_base_currency() {
+    console.log('📝 Migrating base currency to INR...');
+
+    // 1) Move settings.currency off the old factory default (CNY) to INR,
+    // but never clobber a currency someone has already deliberately set.
+    const settingsRow = this.db.prepare(`SELECT currency FROM settings WHERE id = 1`).get();
+
+    if (!settingsRow) {
+      this.db.prepare(`INSERT INTO settings (id, currency) VALUES (1, 'INR')`).run();
+      console.log('✅ No settings row found; created one with currency = INR');
+    } else if (settingsRow.currency === 'CNY') {
+      this.db.prepare(`
+        UPDATE settings SET currency = 'INR', updated_at = CURRENT_TIMESTAMP WHERE id = 1
+      `).run();
+      console.log('✅ settings.currency updated: CNY -> INR');
+    } else {
+      console.log(`ℹ️  settings.currency already '${settingsRow.currency}', leaving unchanged`);
+    }
+
+    // 2) Purge exchange_rates rows anchored to any currency other than INR.
+    // Leftover rows from the previous base would otherwise coexist with the
+    // new INR-anchored rows and corrupt the self-rate (from=to, rate=1)
+    // lookup the frontend uses to detect which currency is "the" base.
+    const { count: staleCount } = this.db.prepare(`
+      SELECT COUNT(*) as count FROM exchange_rates WHERE from_currency != 'INR'
+    `).get();
+
+    if (staleCount > 0) {
+      this.db.prepare(`DELETE FROM exchange_rates WHERE from_currency != 'INR'`).run();
+      console.log(`✅ Removed ${staleCount} stale non-INR-anchored exchange_rates row(s)`);
+    } else {
+      console.log('ℹ️  No stale non-INR-anchored exchange_rates rows found');
+    }
+
+    // 3) Ensure a full INR-anchored rate set exists, reusing
+    // config/currencies.js's BASE_RATES.INR as the single source of truth.
+    const insertRate = this.db.prepare(`
+      INSERT OR IGNORE INTO exchange_rates (from_currency, to_currency, rate)
+      VALUES (?, ?, ?)
+    `);
+
+    getExchangeRatesForBase('INR').forEach(({ from_currency, to_currency, rate }) => {
+      insertRate.run(from_currency, to_currency, rate);
+    });
+
+    console.log('✅ INR is now the anchored base currency for exchange_rates');
   }
 
   // Helper method to parse SQL statements properly
