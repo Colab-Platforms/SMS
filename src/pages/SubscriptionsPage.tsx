@@ -29,6 +29,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -49,7 +55,7 @@ import {
 } from "@/store/subscriptionStore"
 import { optimisticUpdateSubscription, useOptimisticSubscriptions } from "@/store/optimisticStore"
 import { useSettingsStore } from "@/store/settingsStore"
-import { exportSubscriptionsToJSON } from "@/lib/subscription-utils"
+import { exportSubscriptionsToJSON, exportSubscriptionsToCSV, exportSubscriptionsToPDF, downloadFile } from "@/lib/subscription-utils"
 
 import { SubscriptionCard } from "@/components/subscription/SubscriptionCard"
 import { SubscriptionForm } from "@/components/subscription/SubscriptionForm"
@@ -335,25 +341,31 @@ export function SubscriptionsPage() {
     fetchSubscriptions();
   };
 
-  // Handler for exporting subscriptions
-  const handleExportSubscriptions = () => {
-    // Generate JSON data
+  // Handlers for exporting subscriptions in different formats
+  const handleExportJSON = () => {
     const jsonData = exportSubscriptionsToJSON(subscriptions)
-    
-    // Create a blob and download link
-    const blob = new Blob([jsonData], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `subscriptions-${new Date().toISOString().split('T')[0]}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    
+    downloadFile(jsonData, `subscriptions-${new Date().toISOString().split('T')[0]}.json`, 'application/json')
     toast({
       title: t('subscription:exportSuccess'),
       description: t('subscription:exportToJson')
+    })
+  }
+
+  const handleExportCSV = () => {
+    const csvData = exportSubscriptionsToCSV(subscriptions)
+    downloadFile(csvData, `subscriptions-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+    toast({
+      title: t('subscription:exportSuccess'),
+      description: t('subscription:exportToCsv')
+    })
+  }
+
+  const handleExportPDF = () => {
+    const pdfBlob = exportSubscriptionsToPDF(subscriptions)
+    downloadFile(pdfBlob, `subscriptions-${new Date().toISOString().split('T')[0]}.pdf`)
+    toast({
+      title: t('subscription:exportSuccess'),
+      description: t('subscription:exportToPdf')
     })
   }
   
@@ -421,18 +433,24 @@ export function SubscriptionsPage() {
             </Tooltip>
           </TooltipProvider>
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" onClick={handleExportSubscriptions} size="icon">
-                  <Download className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{t('common:export')}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon">
+                <Download className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportJSON}>
+                {t('subscription:exportAsJson')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportCSV}>
+                {t('subscription:exportAsCsv')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportPDF}>
+                {t('subscription:exportAsPdf')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

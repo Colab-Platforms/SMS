@@ -1,4 +1,6 @@
 import { BillingCycle, Subscription, SubscriptionStatus } from '@/store/subscriptionStore'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 
 
@@ -230,10 +232,11 @@ export function exportSubscriptionsToJSON(subscriptions: Subscription[]): string
 }
 
 /**
- * Download data as a file
+ * Download data as a file. Accepts either raw text (with a contentType to
+ * wrap in a Blob) or an already-built Blob (e.g. from a PDF generator).
  */
-export function downloadFile(data: string, filename: string, contentType: string): void {
-  const blob = new Blob([data], { type: contentType })
+export function downloadFile(data: string | Blob, filename: string, contentType?: string): void {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: contentType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -286,6 +289,45 @@ export function exportSubscriptionsToCSV(subscriptions: Subscription[]): string 
   
   // Combine headers and rows
   return [headers, ...rows].join('\n')
+}
+
+/**
+ * Export subscriptions to PDF format
+ */
+export function exportSubscriptionsToPDF(subscriptions: Subscription[]): Blob {
+  const doc = new jsPDF({ orientation: 'landscape' })
+
+  doc.setFontSize(14)
+  doc.text('Subscriptions', 14, 15)
+
+  const headers = [
+    'Name', 'Plan', 'Billing Cycle', 'Next Billing', 'Amount', 'Currency',
+    'Payment Method', 'Start Date', 'Status', 'Category', 'Renewal Type'
+  ]
+
+  const rows = subscriptions.map(sub => [
+    sub.name,
+    sub.plan,
+    sub.billingCycle,
+    sub.nextBillingDate,
+    String(sub.amount),
+    sub.currency,
+    sub.paymentMethod?.label || 'Unknown',
+    sub.startDate,
+    sub.status,
+    sub.category?.value || 'other',
+    sub.renewalType
+  ])
+
+  autoTable(doc, {
+    head: [headers],
+    body: rows,
+    startY: 20,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [41, 128, 185] }
+  })
+
+  return doc.output('blob')
 }
 
 /**
