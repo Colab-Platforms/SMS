@@ -79,11 +79,14 @@ class Validator {
 
     /**
      * 验证数字类型
+     * Accepts real numbers and numeric strings — Prisma serializes Decimal
+     * fields (amount, rate, amount_paid, ...) as strings in JSON responses
+     * to preserve precision, so round-tripped values legitimately arrive as strings.
      * @param {*} value - 值
      * @param {string} field - 字段名
      */
     number(value, field) {
-        if (value !== undefined && value !== null && (typeof value !== 'number' || isNaN(value))) {
+        if (value !== undefined && value !== null && (typeof value === 'boolean' || value === '' || isNaN(Number(value)))) {
             this.addError(field, `${field} must be a number`);
         }
         return this;
@@ -343,28 +346,38 @@ function validateSubscription(data) {
 }
 
 /**
- * 验证订阅数据（包含外键验证）
- * @param {Object} data - 订阅数据
- * @param {Object} db - 数据库连接
- * @returns {Validator}
+ * Validate subscription data including foreign-key existence checks (async — uses Prisma).
+ * @param {Object} data - subscription data
+ * @param {Object} prisma - Prisma client
+ * @returns {Promise<Validator>}
  */
-function validateSubscriptionWithForeignKeys(data, db) {
+async function validateSubscriptionWithForeignKeys(data, prisma) {
     const validator = validateSubscription(data);
 
-    // 验证 category_id 外键
+    // Validate category_id FK
     if (data.category_id !== undefined && data.category_id !== null) {
-        const categoryExists = db.prepare('SELECT COUNT(*) as count FROM categories WHERE id = ?').get(data.category_id);
-        validator.custom(data.category_id, 'category_id',
-            () => categoryExists.count > 0,
-            `Category with id ${data.category_id} does not exist`);
+        const categoryExists = await prisma.category.findUnique({
+            where:  { id: Number(data.category_id) },
+            select: { id: true },
+        });
+        validator.custom(
+            data.category_id, 'category_id',
+            () => categoryExists !== null,
+            `Category with id ${data.category_id} does not exist`
+        );
     }
 
-    // 验证 payment_method_id 外键
+    // Validate payment_method_id FK
     if (data.payment_method_id !== undefined && data.payment_method_id !== null) {
-        const paymentMethodExists = db.prepare('SELECT COUNT(*) as count FROM payment_methods WHERE id = ?').get(data.payment_method_id);
-        validator.custom(data.payment_method_id, 'payment_method_id',
-            () => paymentMethodExists.count > 0,
-            `Payment method with id ${data.payment_method_id} does not exist`);
+        const paymentMethodExists = await prisma.paymentMethod.findUnique({
+            where:  { id: Number(data.payment_method_id) },
+            select: { id: true },
+        });
+        validator.custom(
+            data.payment_method_id, 'payment_method_id',
+            () => paymentMethodExists !== null,
+            `Payment method with id ${data.payment_method_id} does not exist`
+        );
     }
 
     return validator;

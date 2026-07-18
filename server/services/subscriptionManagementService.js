@@ -4,31 +4,28 @@ const logger = require('../utils/logger');
 const NotificationService = require('./notificationService');
 
 /**
- * 订阅管理服务类
- * 处理订阅续费、过期处理等业务逻辑
+ * Subscription Management Service — handles renewals, expirations, and reactivations.
+ * Fully async Prisma rewrite.
  */
 class SubscriptionManagementService extends BaseRepository {
-    constructor(db) {
-        super(db, 'subscriptions');
-        this.notificationService = new NotificationService(this.db);
+    constructor(prisma) {
+        super(prisma, 'subscriptions');
+        this.notificationService = new NotificationService(prisma);
     }
 
     /**
-     * 处理自动续费
-     * @returns {Object} 处理结果
+     * Process auto-renewals for all active auto-renew subscriptions.
      */
     async processAutoRenewals() {
         try {
-            // 获取所有活跃的自动续费订阅
-            const activeAutoRenewalSubscriptions = this.findAll({
-                filters: { status: 'active', renewal_type: 'auto' }
+            const activeAutoRenewalSubscriptions = await this.findAll({
+                filters: { status: 'active', renewal_type: 'auto' },
             });
 
             let processed = 0;
-            let errors = 0;
+            let errors    = 0;
             const renewedSubscriptions = [];
 
-            // 检查每个订阅是否需要续费
             for (const subscription of activeAutoRenewalSubscriptions) {
                 try {
                     if (isDateDueOrOverdue(subscription.next_billing_date)) {
@@ -38,18 +35,10 @@ class SubscriptionManagementService extends BaseRepository {
                             renewedSubscriptions.push(renewalResult.data);
                         } else {
                             errors++;
-                            // 发送续订失败通知（异步触发，不阻塞批处理）
                             this.notificationService
-                                .sendNotification({
-                                    subscriptionId: subscription.id,
-                                    notificationType: 'renewal_failure'
-                                })
-                                .then(() => {
-                                    logger.info(`Renewal failure notification dispatched for subscription ${subscription.id}`);
-                                })
-                                .catch((notificationError) => {
-                                    logger.error(`Failed to send renewal failure notification for subscription ${subscription.id}:`, notificationError.message);
-                                });
+                                .sendNotification({ subscriptionId: subscription.id, notificationType: 'renewal_failure' })
+                                .then(() => logger.info(`Renewal failure notification dispatched for subscription ${subscription.id}`))
+                                .catch((e) => logger.error(`Failed to send renewal failure notification for subscription ${subscription.id}:`, e.message));
                         }
                     }
                 } catch (error) {
@@ -59,12 +48,11 @@ class SubscriptionManagementService extends BaseRepository {
             }
 
             const result = {
-                message: `Auto renewal complete: ${processed} processed, ${errors} errors`,
+                message:             `Auto renewal complete: ${processed} processed, ${errors} errors`,
                 processed,
                 errors,
-                renewedSubscriptions
+                renewedSubscriptions,
             };
-
             logger.info(result.message);
             return result;
         } catch (error) {
@@ -74,46 +62,35 @@ class SubscriptionManagementService extends BaseRepository {
     }
 
     /**
-     * 处理过期的手动续费订阅
-     * @returns {Object} 处理结果
+     * Process expired manual subscriptions and mark them cancelled.
      */
     async processExpiredSubscriptions() {
         try {
-            // 获取所有活跃的手动续费订阅
-            const activeManualSubscriptions = this.findAll({
-                filters: { status: 'active', renewal_type: 'manual' }
+            const activeManualSubscriptions = await this.findAll({
+                filters: { status: 'active', renewal_type: 'manual' },
             });
 
             let processed = 0;
-            let errors = 0;
+            let errors    = 0;
             const expiredSubscriptions = [];
 
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            // 检查每个手动订阅是否过期
             for (const subscription of activeManualSubscriptions) {
                 try {
+                    if (!subscription.next_billing_date) continue;
                     const billingDate = new Date(subscription.next_billing_date);
                     billingDate.setHours(0, 0, 0, 0);
 
-                    // 如果计费日期已过，标记为取消
                     if (billingDate < today) {
-                        const result = this.update(subscription.id, {
-                            status: 'cancelled',
-                            updated_at: new Date().toISOString()
+                        await this.update(subscription.id, { status: 'cancelled' });
+                        processed++;
+                        expiredSubscriptions.push({
+                            id:          subscription.id,
+                            name:        subscription.name,
+                            expiredDate: subscription.next_billing_date,
                         });
-
-                        if (result.changes > 0) {
-                            processed++;
-                            expiredSubscriptions.push({
-                                id: subscription.id,
-                                name: subscription.name,
-                                expiredDate: subscription.next_billing_date
-                            });
-                        } else {
-                            errors++;
-                        }
                     }
                 } catch (error) {
                     logger.error(`Error processing expiration for subscription ${subscription.id}:`, error.message);
@@ -122,12 +99,11 @@ class SubscriptionManagementService extends BaseRepository {
             }
 
             const result = {
-                message: `Expired subscriptions processed: ${processed} expired, ${errors} errors`,
+                message:             `Expired subscriptions processed: ${processed} expired, ${errors} errors`,
                 processed,
                 errors,
-                expiredSubscriptions
+                expiredSubscriptions,
             };
-
             logger.info(result.message);
             return result;
         } catch (error) {
@@ -137,43 +113,26 @@ class SubscriptionManagementService extends BaseRepository {
     }
 
     /**
-     * 手动续费订阅
-     * @param {number} subscriptionId - 订阅ID
-     * @returns {Object} 续费结果
+     * Manually renew a subscription.
      */
     async manualRenewSubscription(subscriptionId) {
         try {
-            // 获取订阅信息
-            const subscription = this.findById(subscriptionId);
-            if (!subscription) {
-                throw new Error('Subscription not found');
-            }
-
+            const subscription = await this.findById(subscriptionId);
+            if (!subscription) throw new Error('Subscription not found');
             if (subscription.renewal_type !== 'manual') {
                 throw new Error('Only manual renewal subscriptions can be manually renewed');
             }
 
             const renewalResult = await this._renewSubscription(subscription, 'manual');
-            
+
             if (renewalResult.success) {
                 logger.info(`Manual renewal completed for subscription ${subscriptionId}`);
-                return {
-                    message: 'Subscription renewed successfully',
-                    renewalData: renewalResult.data
-                };
+                return { message: 'Subscription renewed successfully', renewalData: renewalResult.data };
             } else {
-                // 发送手动续订失败通知（异步触发，不阻塞请求）
                 this.notificationService
-                    .sendNotification({
-                        subscriptionId: subscription.id,
-                        notificationType: 'renewal_failure'
-                    })
-                    .then(() => {
-                        logger.info(`Manual renewal failure notification dispatched for subscription ${subscriptionId}`);
-                    })
-                    .catch((notificationError) => {
-                        logger.error(`Failed to send manual renewal failure notification for subscription ${subscriptionId}:`, notificationError.message);
-                    });
+                    .sendNotification({ subscriptionId: subscription.id, notificationType: 'renewal_failure' })
+                    .then(() => logger.info(`Manual renewal failure notification dispatched for subscription ${subscriptionId}`))
+                    .catch((e) => logger.error(`Failed to send manual renewal failure notification for subscription ${subscriptionId}:`, e.message));
                 throw new Error('Failed to update subscription');
             }
         } catch (error) {
@@ -183,65 +142,54 @@ class SubscriptionManagementService extends BaseRepository {
     }
 
     /**
-     * 重新激活已取消的订阅
-     * @param {number} subscriptionId - 订阅ID
-     * @returns {Object} 重新激活结果
+     * Reactivate a cancelled subscription.
      */
     async reactivateSubscription(subscriptionId) {
         try {
-            // 获取订阅信息
-            const subscription = this.findById(subscriptionId);
-            if (!subscription) {
-                throw new Error('Subscription not found');
-            }
-
+            const subscription = await this.findById(subscriptionId);
+            if (!subscription) throw new Error('Subscription not found');
             if (subscription.status !== 'cancelled') {
                 throw new Error('Only cancelled subscriptions can be reactivated');
             }
 
-            const todayStr = getTodayString();
+            const todayStr         = getTodayString();
             const newNextBillingStr = calculateNextBillingDate(todayStr, subscription.billing_cycle);
 
-            // 使用事务确保数据一致性
-            const reactivationResult = this.transaction(() => {
-                // 更新订阅状态
-                const updateResult = this.update(subscriptionId, {
-                    last_billing_date: todayStr,
-                    next_billing_date: newNextBillingStr,
-                    status: 'active',
-                    updated_at: new Date().toISOString()
+            await this.prisma.$transaction(async (tx) => {
+                await tx.subscription.update({
+                    where: { id: subscriptionId },
+                    data:  {
+                        last_billing_date: new Date(todayStr),
+                        next_billing_date: new Date(newNextBillingStr),
+                        status:            'active',
+                    },
                 });
 
-                if (updateResult.changes > 0) {
-                    // 创建支付历史记录
-                    this._createPaymentRecord(subscription, {
-                        payment_date: todayStr,
-                        billing_period_start: todayStr,
-                        billing_period_end: newNextBillingStr,
-                        notes: 'Subscription reactivation payment'
-                    });
-                    return true;
-                }
-                return false;
+                await tx.paymentHistory.create({
+                    data: {
+                        subscription_id:      subscriptionId,
+                        payment_date:         new Date(todayStr),
+                        amount_paid:          subscription.amount,
+                        currency:             subscription.currency,
+                        billing_period_start: new Date(todayStr),
+                        billing_period_end:   new Date(newNextBillingStr),
+                        status:               'succeeded',
+                        notes:                'Subscription reactivation payment',
+                    },
+                });
             });
 
-            if (reactivationResult) {
-                const result = {
-                    message: 'Subscription reactivated successfully',
-                    reactivationData: {
-                        id: subscription.id,
-                        name: subscription.name,
-                        newLastBilling: todayStr,
-                        newNextBilling: newNextBillingStr,
-                        status: 'active'
-                    }
-                };
-
-                logger.info(`Subscription ${subscriptionId} reactivated successfully`);
-                return result;
-            } else {
-                throw new Error('Failed to reactivate subscription');
-            }
+            logger.info(`Subscription ${subscriptionId} reactivated successfully`);
+            return {
+                message:          'Subscription reactivated successfully',
+                reactivationData: {
+                    id:             subscription.id,
+                    name:           subscription.name,
+                    newLastBilling: todayStr,
+                    newNextBilling: newNextBillingStr,
+                    status:         'active',
+                },
+            };
         } catch (error) {
             logger.error(`Failed to reactivate subscription ${subscriptionId}:`, error.message);
             throw error;
@@ -249,35 +197,24 @@ class SubscriptionManagementService extends BaseRepository {
     }
 
     /**
-     * 重置所有订阅数据
-     * @returns {Object} 重置结果
+     * Reset all subscriptions and related data.
      */
     async resetAllSubscriptions() {
         try {
-            // 使用事务确保数据一致性
-            const resetResult = this.transaction(() => {
-                // 显式删除 payment_history 表（确保清理）
-                const paymentHistoryResult = this.db.prepare('DELETE FROM payment_history').run();
-
-                // 删除所有订阅
-                const subscriptionResult = this.db.prepare('DELETE FROM subscriptions').run();
-
-                // 显式清理 monthly_expenses 表
-                const monthlyExpensesResult = this.db.prepare('DELETE FROM monthly_expenses').run();
-
-                return {
-                    subscriptions: subscriptionResult.changes,
-                    paymentHistory: paymentHistoryResult.changes,
-                    monthlyExpenses: monthlyExpensesResult.changes
-                };
-            });
+            const [paymentHistoryResult, subscriptionResult] = await this.prisma.$transaction([
+                this.prisma.paymentHistory.deleteMany({}),
+                this.prisma.subscription.deleteMany({}),
+            ]);
 
             const result = {
-                message: 'All subscriptions and related data have been deleted.',
-                deletedCounts: resetResult
+                message:      'All subscriptions and related data have been deleted.',
+                deletedCounts: {
+                    subscriptions:  subscriptionResult.count,
+                    paymentHistory: paymentHistoryResult.count,
+                },
             };
 
-            logger.info(`Reset completed: ${resetResult.subscriptions} subscriptions, ${resetResult.monthlyExpenses} monthly expense records deleted`);
+            logger.info(`Reset completed: ${subscriptionResult.count} subscriptions, ${paymentHistoryResult.count} payment records deleted`);
             return result;
         } catch (error) {
             logger.error('Failed to reset subscriptions:', error.message);
@@ -285,118 +222,73 @@ class SubscriptionManagementService extends BaseRepository {
         }
     }
 
-    /**
-     * 续费订阅（内部方法）
-     * @private
-     * @param {Object} subscription - 订阅对象
-     * @param {string} renewalType - 续费类型 ('auto' | 'manual')
-     * @returns {Object} 续费结果
-     */
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
     async _renewSubscription(subscription, renewalType) {
         const todayStr = getTodayString();
-        
-        // 计算新的下次计费日期
+
         let baseDate;
         if (renewalType === 'manual') {
-            const today = new Date();
+            const today              = new Date();
             today.setHours(0, 0, 0, 0);
             const currentNextBilling = new Date(subscription.next_billing_date);
             currentNextBilling.setHours(0, 0, 0, 0);
-            
-            // 如果在到期日之前续费，从原到期日计算；如果在到期日之后续费，从今天计算
             baseDate = currentNextBilling >= today ? subscription.next_billing_date : todayStr;
         } else {
             baseDate = subscription.next_billing_date;
         }
-        
-        const newNextBillingStr = calculateNextBillingDate(baseDate, subscription.billing_cycle);
+
+        const newNextBillingStr = calculateNextBillingDate(
+            baseDate instanceof Date ? baseDate.toISOString().split('T')[0] : String(baseDate),
+            subscription.billing_cycle
+        );
 
         try {
-            // 使用事务确保数据一致性
-            const renewalResult = this.transaction(() => {
-                // 更新订阅
-                const updateResult = this.update(subscription.id, {
-                    last_billing_date: todayStr,
-                    next_billing_date: newNextBillingStr,
-                    status: 'active', // 确保状态为活跃
-                    updated_at: new Date().toISOString()
+            await this.prisma.$transaction(async (tx) => {
+                await tx.subscription.update({
+                    where: { id: subscription.id },
+                    data:  {
+                        last_billing_date: new Date(todayStr),
+                        next_billing_date: new Date(newNextBillingStr),
+                        status:            'active',
+                    },
                 });
 
-                if (updateResult.changes > 0) {
-                    // 创建支付历史记录
-                    this._createPaymentRecord(subscription, {
-                        payment_date: todayStr,
-                        billing_period_start: subscription.next_billing_date,
-                        billing_period_end: newNextBillingStr,
-                        notes: `${renewalType === 'auto' ? 'Auto' : 'Manual'} renewal payment`
-                    });
-                    return true;
-                }
-                return false;
+                await tx.paymentHistory.create({
+                    data: {
+                        subscription_id:      subscription.id,
+                        payment_date:         new Date(todayStr),
+                        amount_paid:          subscription.amount,
+                        currency:             subscription.currency,
+                        billing_period_start: new Date(new Date(subscription.next_billing_date).toISOString().split('T')[0]),
+                        billing_period_end:   new Date(newNextBillingStr),
+                        status:               'succeeded',
+                        notes:                `${renewalType === 'auto' ? 'Auto' : 'Manual'} renewal payment`,
+                    },
+                });
             });
 
-            if (renewalResult) {
-                const renewalData = {
-                    id: subscription.id,
-                    name: subscription.name,
-                    oldNextBilling: subscription.next_billing_date,
-                    newLastBilling: todayStr,
-                    newNextBilling: newNextBillingStr,
-                    renewedEarly: renewalType === 'manual' && new Date(subscription.next_billing_date) >= new Date()
-                };
+            const renewalData = {
+                id:             subscription.id,
+                name:           subscription.name,
+                oldNextBilling: subscription.next_billing_date,
+                newLastBilling: todayStr,
+                newNextBilling: newNextBillingStr,
+                renewedEarly:   renewalType === 'manual' && new Date(subscription.next_billing_date) >= new Date(),
+            };
 
-                // 发送续订成功通知（异步触发，不阻塞请求）
-                this.notificationService
-                    .sendNotification({
-                        subscriptionId: subscription.id,
-                        notificationType: 'renewal_success'
-                    })
-                    .then(() => {
-                        logger.info(`Renewal success notification dispatched for subscription ${subscription.id}`);
-                    })
-                    .catch((notificationError) => {
-                        logger.error(
-                            `Failed to send renewal success notification for subscription ${subscription.id}:`,
-                            notificationError.message
-                        );
-                        // 不影响续订结果，只记录错误
-                    });
+            this.notificationService
+                .sendNotification({ subscriptionId: subscription.id, notificationType: 'renewal_success' })
+                .then(() => logger.info(`Renewal success notification dispatched for subscription ${subscription.id}`))
+                .catch((e) => logger.error(`Failed to send renewal success notification for subscription ${subscription.id}:`, e.message));
 
-                return {
-                    success: true,
-                    data: renewalData
-                };
-            } else {
-                return { success: false };
-            }
+            return { success: true, data: renewalData };
         } catch (error) {
             logger.error(`Failed to renew subscription ${subscription.id}:`, error.message);
             return { success: false, error: error.message };
         }
-    }
-
-    /**
-     * 创建支付记录（内部方法）
-     * @private
-     * @param {Object} subscription - 订阅对象
-     * @param {Object} paymentData - 支付数据
-     */
-    _createPaymentRecord(subscription, paymentData) {
-        const paymentStmt = this.db.prepare(`
-            INSERT INTO payment_history (subscription_id, payment_date, amount_paid, currency, billing_period_start, billing_period_end, status, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        paymentStmt.run(
-            subscription.id,
-            paymentData.payment_date,
-            subscription.amount,
-            subscription.currency,
-            paymentData.billing_period_start,
-            paymentData.billing_period_end,
-            'succeeded',
-            paymentData.notes
-        );
     }
 }
 

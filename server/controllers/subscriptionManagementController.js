@@ -146,149 +146,107 @@ class SubscriptionManagementController {
         if (processExpired) {
             results.expiredSubscriptions = await this.subscriptionManagementService.processExpiredSubscriptions();
             results.summary.totalProcessed += results.expiredSubscriptions.processed;
-            results.summary.totalErrors += results.expiredSubscriptions.errors;
+            results.summary.totalErrors    += results.expiredSubscriptions.errors;
         }
 
         success(res, results, `Batch processing completed: ${results.summary.totalProcessed} processed, ${results.summary.totalErrors} errors`);
     });
 
     /**
-     * 获取订阅管理统计信息
+     * Get subscription management statistics
      */
     getSubscriptionManagementStats = asyncHandler(async (req, res) => {
-        // 获取各种状态的订阅统计
-        const activeAutoRenewal = this.subscriptionManagementService.count({
-            status: 'active',
-            renewal_type: 'auto'
-        });
+        const prisma = this.subscriptionManagementService.prisma;
 
-        const activeManualRenewal = this.subscriptionManagementService.count({
-            status: 'active',
-            renewal_type: 'manual'
-        });
-
-        const cancelledSubscriptions = this.subscriptionManagementService.count({
-            status: 'cancelled'
-        });
-
-        const trialSubscriptions = this.subscriptionManagementService.count({
-            status: 'trial'
-        });
-
-        // 获取即将到期的订阅（未来7天内）
-        const today = new Date();
+        const today    = new Date();
+        today.setHours(0, 0, 0, 0);
         const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const todayStr = today.toISOString().split('T')[0];
-        const nextWeekStr = nextWeek.toISOString().split('T')[0];
 
-        // 这里需要使用原始SQL查询，因为BaseRepository的findAll不支持日期范围查询
-        const upcomingRenewalsStmt = this.subscriptionManagementService.db.prepare(`
-            SELECT COUNT(*) as count 
-            FROM subscriptions 
-            WHERE status = 'active' 
-            AND next_billing_date BETWEEN ? AND ?
-        `);
-        const upcomingRenewals = upcomingRenewalsStmt.get(todayStr, nextWeekStr).count;
-
-        // 获取过期的手动续费订阅
-        const overdueStmt = this.subscriptionManagementService.db.prepare(`
-            SELECT COUNT(*) as count 
-            FROM subscriptions 
-            WHERE status = 'active' 
-            AND renewal_type = 'manual'
-            AND next_billing_date < ?
-        `);
-        const overdueSubscriptions = overdueStmt.get(todayStr).count;
+        const [activeAutoRenewal, activeManualRenewal, cancelledSubscriptions, trialSubscriptions, upcomingRenewals, overdueSubscriptions] =
+            await Promise.all([
+                prisma.subscription.count({ where: { status: 'active', renewal_type: 'auto' } }),
+                prisma.subscription.count({ where: { status: 'active', renewal_type: 'manual' } }),
+                prisma.subscription.count({ where: { status: 'cancelled' } }),
+                prisma.subscription.count({ where: { status: 'trial' } }),
+                prisma.subscription.count({
+                    where: {
+                        status:            'active',
+                        next_billing_date: { gte: today, lte: nextWeek },
+                    },
+                }),
+                prisma.subscription.count({
+                    where: {
+                        status:            'active',
+                        renewal_type:      'manual',
+                        next_billing_date: { lt: today },
+                    },
+                }),
+            ]);
 
         const stats = {
             subscriptionCounts: {
                 activeAutoRenewal,
                 activeManualRenewal,
                 cancelled: cancelledSubscriptions,
-                trial: trialSubscriptions,
-                total: activeAutoRenewal + activeManualRenewal + cancelledSubscriptions + trialSubscriptions
+                trial:     trialSubscriptions,
+                total:     activeAutoRenewal + activeManualRenewal + cancelledSubscriptions + trialSubscriptions,
             },
-            upcomingActions: {
-                upcomingRenewals,
-                overdueSubscriptions
-            },
+            upcomingActions: { upcomingRenewals, overdueSubscriptions },
             healthMetrics: {
-                autoRenewalRate: activeAutoRenewal + activeManualRenewal > 0 
-                    ? Math.round((activeAutoRenewal / (activeAutoRenewal + activeManualRenewal)) * 100) 
+                autoRenewalRate: activeAutoRenewal + activeManualRenewal > 0
+                    ? Math.round((activeAutoRenewal / (activeAutoRenewal + activeManualRenewal)) * 100)
                     : 0,
                 activeRate: activeAutoRenewal + activeManualRenewal + cancelledSubscriptions + trialSubscriptions > 0
-                    ? Math.round(((activeAutoRenewal + activeManualRenewal) / (activeAutoRenewal + activeManualRenewal + cancelledSubscriptions + trialSubscriptions)) * 100)
-                    : 0
+                    ? Math.round(
+                        ((activeAutoRenewal + activeManualRenewal) /
+                            (activeAutoRenewal + activeManualRenewal + cancelledSubscriptions + trialSubscriptions)) * 100
+                      )
+                    : 0,
             },
-            lastUpdated: new Date().toISOString()
+            lastUpdated: new Date().toISOString(),
         };
 
         handleQueryResult(res, stats, 'Subscription management statistics');
     });
 
     /**
-     * 预览即将到期的订阅
+     * Preview upcoming renewals within the given day window
      */
     previewUpcomingRenewals = asyncHandler(async (req, res) => {
         const { days = 7 } = req.query;
 
-        // 验证天数参数
         const validator = createValidator();
         validator
             .integer(days, 'days')
             .range(days, 'days', 1, 365);
 
-        if (validator.hasErrors()) {
-            return validationError(res, validator.getErrors());
-        }
+        if (validator.hasErrors()) return validationError(res, validator.getErrors());
 
-        const today = new Date();
-        const futureDate = new Date(today.getTime() + parseInt(days) * 24 * 60 * 60 * 1000);
-        const todayStr = today.toISOString().split('T')[0];
+        const prisma      = this.subscriptionManagementService.prisma;
+        const today       = new Date();
+        today.setHours(0, 0, 0, 0);
+        const futureDate  = new Date(today.getTime() + parseInt(days) * 24 * 60 * 60 * 1000);
+        const todayStr    = today.toISOString().split('T')[0];
         const futureDateStr = futureDate.toISOString().split('T')[0];
 
-        // 获取即将到期的订阅
-        const upcomingStmt = this.subscriptionManagementService.db.prepare(`
-            SELECT * FROM subscriptions 
-            WHERE status = 'active' 
-            AND next_billing_date BETWEEN ? AND ?
-            ORDER BY next_billing_date ASC
-        `);
-        const upcomingSubscriptions = upcomingStmt.all(todayStr, futureDateStr);
+        const upcomingSubscriptions = await prisma.subscription.findMany({
+            where: {
+                status:            'active',
+                next_billing_date: { gte: today, lte: futureDate },
+            },
+            orderBy: { next_billing_date: 'asc' },
+        });
 
-        // 分类处理
-        const autoRenewals = upcomingSubscriptions.filter(sub => sub.renewal_type === 'auto');
-        const manualRenewals = upcomingSubscriptions.filter(sub => sub.renewal_type === 'manual');
+        const autoRenewals   = upcomingSubscriptions.filter((s) => s.renewal_type === 'auto');
+        const manualRenewals = upcomingSubscriptions.filter((s) => s.renewal_type === 'manual');
 
         const result = {
-            period: {
-                from: todayStr,
-                to: futureDateStr,
-                days: parseInt(days)
-            },
-            summary: {
-                total: upcomingSubscriptions.length,
-                autoRenewals: autoRenewals.length,
-                manualRenewals: manualRenewals.length
-            },
+            period:   { from: todayStr, to: futureDateStr, days: parseInt(days) },
+            summary:  { total: upcomingSubscriptions.length, autoRenewals: autoRenewals.length, manualRenewals: manualRenewals.length },
             subscriptions: {
-                autoRenewals: autoRenewals.map(sub => ({
-                    id: sub.id,
-                    name: sub.name,
-                    amount: sub.amount,
-                    currency: sub.currency,
-                    nextBillingDate: sub.next_billing_date,
-                    billingCycle: sub.billing_cycle
-                })),
-                manualRenewals: manualRenewals.map(sub => ({
-                    id: sub.id,
-                    name: sub.name,
-                    amount: sub.amount,
-                    currency: sub.currency,
-                    nextBillingDate: sub.next_billing_date,
-                    billingCycle: sub.billing_cycle
-                }))
-            }
+                autoRenewals:   autoRenewals.map((s) => ({ id: s.id, name: s.name, amount: s.amount, currency: s.currency, nextBillingDate: s.next_billing_date, billingCycle: s.billing_cycle })),
+                manualRenewals: manualRenewals.map((s) => ({ id: s.id, name: s.name, amount: s.amount, currency: s.currency, nextBillingDate: s.next_billing_date, billingCycle: s.billing_cycle })),
+            },
         };
 
         handleQueryResult(res, result, 'Upcoming renewals preview');

@@ -79,7 +79,7 @@ class SettingsController {
      */
     resetSettings = asyncHandler(async (req, res) => {
         const result = await this.settingsService.resetSettings();
-        success(res, { id: result.lastInsertRowid }, 'Settings have been reset to default values');
+        success(res, { id: result.id }, 'Settings have been reset to default values');
     });
 
     /**
@@ -239,10 +239,10 @@ class SettingsController {
         }
 
         const result = await this.settingsService.updateSettings(updateData);
-        
+
         success(res, {
             updatedFields: Object.keys(updateData),
-            changes: result.changes
+            settings: result
         }, 'Settings updated successfully');
     });
 }

@@ -9,22 +9,18 @@ const {
 } = require('../utils/validator');
 
 class NotificationController {
-    constructor() {
-        this.notificationService = new NotificationService();
-        this.telegramService = new TelegramService();
+    constructor(prisma) {
+        this.notificationService = new NotificationService(prisma);
+        this.telegramService     = new TelegramService();
     }
 
     /**
-     * 获取通知设置
+     * Get single notification setting
      */
-    getSettings = (req, res) => {
+    getSettings = async (req, res) => {
         try {
-            const settings = this.notificationService.getNotificationSettings(req.params.type);
-            
-            if (!settings) {
-                return responseHelper.notFound(res, 'Notification settings not found');
-            }
-
+            const settings = await this.notificationService.getNotificationSettings(req.params.type);
+            if (!settings) return responseHelper.notFound(res, 'Notification settings not found');
             responseHelper.success(res, settings);
         } catch (error) {
             console.error('Error getting notification settings:', error);
@@ -33,22 +29,17 @@ class NotificationController {
     };
 
     /**
-     * 获取所有通知设置
+     * Get all notification settings
      */
-    getAllSettings = (req, res) => {
+    getAllSettings = async (req, res) => {
         try {
-            const db = this.notificationService.db;
+            const settings = await this.notificationService.prisma.notificationSetting.findMany({
+                orderBy: { notification_type: 'asc' },
+            });
 
-            const query = `
-                SELECT * FROM notification_settings
-                ORDER BY notification_type
-            `;
-            const settings = db.prepare(query).all();
-
-            // Parse JSON fields
-            const parsedSettings = settings.map(setting => ({
-                ...setting,
-                notification_channels: JSON.parse(setting.notification_channels || '["telegram"]')
+            const parsedSettings = settings.map((s) => ({
+                ...s,
+                notification_channels: JSON.parse(s.notification_channels || '["telegram"]'),
             }));
 
             responseHelper.success(res, parsedSettings);
@@ -59,73 +50,58 @@ class NotificationController {
     };
 
     /**
-     * 更新通知设置
+     * Update a notification setting
      */
-    updateSetting = (req, res) => {
+    updateSetting = async (req, res) => {
         try {
-            const settingId = parseInt(req.params.id);
+            const settingId  = parseInt(req.params.id);
             const updateData = req.body;
 
-            // 验证输入数据
             const validator = createValidator();
             validator
                 .boolean(updateData.is_enabled, 'is_enabled')
                 .integer(updateData.advance_days, 'advance_days')
                 .range(updateData.advance_days, 'advance_days', 0, 365)
                 .array(updateData.notification_channels, 'notification_channels')
-                .custom(updateData.notification_channels, 'notification_channels',
-                    (channels) => !channels || channels.every(channel => ['telegram', 'email', 'webhook'].includes(channel)),
+                .custom(
+                    updateData.notification_channels, 'notification_channels',
+                    (ch) => !ch || ch.every((c) => ['telegram', 'email', 'webhook'].includes(c)),
                     'notification_channels must contain only valid channel types: telegram, email, webhook'
                 )
                 .boolean(updateData.repeat_notification, 'repeat_notification');
 
-            if (validator.hasErrors()) {
-                return responseHelper.badRequest(res, validator.getErrors());
-            }
+            if (validator.hasErrors()) return responseHelper.badRequest(res, validator.getErrors());
 
             const { is_enabled, advance_days, notification_channels, repeat_notification } = updateData;
 
-            // Normalize boolean values from SQLite integers to actual booleans
+            // Normalize boolean-ish values (supports true/false, 1/0, and their string forms)
             const normalizeBoolean = (value) => {
                 if (typeof value === 'boolean') return value;
                 if (value === 1 || value === '1' || value === 'true') return true;
                 if (value === 0 || value === '0' || value === 'false') return false;
-                return value;
+                return Boolean(value);
             };
-
-            // Normalize the boolean values
-            const normalizedIsEnabled = normalizeBoolean(is_enabled);
+            const normalizedIsEnabled          = normalizeBoolean(is_enabled);
             const normalizedRepeatNotification = normalizeBoolean(repeat_notification);
 
-            const db = this.notificationService.db;
+            // Find current setting by id
+            const currentSetting = await this.notificationService.prisma.notificationSetting.findUnique({
+                where: { id: settingId },
+            });
+            if (!currentSetting) return responseHelper.notFound(res, 'Notification setting not found');
 
-            // First get the current setting to check notification type
-            const currentSetting = db.prepare('SELECT notification_type FROM notification_settings WHERE id = ?').get(settingId);
-
-            if (!currentSetting) {
-                return responseHelper.notFound(res, 'Notification setting not found');
-            }
-
-            // For expiration_warning, always keep advance_days as 0 (fixed timing)
+            // expiration_warning always has advance_days = 0
             const finalAdvanceDays = currentSetting.notification_type === 'expiration_warning' ? 0 : advance_days;
 
-            const query = `
-                UPDATE notification_settings
-                SET is_enabled = ?, advance_days = ?, notification_channels = ?, repeat_notification = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            `;
-
-            const result = db.prepare(query).run(
-                normalizedIsEnabled ? 1 : 0, // Convert normalized boolean to integer for SQLite
-                finalAdvanceDays,
-                JSON.stringify(notification_channels || ['telegram']),
-                normalizedRepeatNotification ? 1 : 0, // Convert normalized boolean to integer for SQLite
-                settingId
-            );
-
-            if (result.changes === 0) {
-                return responseHelper.notFound(res, 'Notification setting not found');
-            }
+            await this.notificationService.prisma.notificationSetting.update({
+                where: { id: settingId },
+                data: {
+                    is_enabled:            normalizedIsEnabled,
+                    advance_days:          finalAdvanceDays,
+                    notification_channels: JSON.stringify(notification_channels || ['telegram']),
+                    repeat_notification:   normalizedRepeatNotification,
+                },
+            });
 
             responseHelper.success(res, { message: 'Notification setting updated successfully' });
         } catch (error) {
@@ -164,11 +140,11 @@ class NotificationController {
     /**
      * 获取渠道配置
      */
-    getChannelConfig = (req, res) => {
+    getChannelConfig = async (req, res) => {
         try {
             const channelType = req.params.channelType;
 
-            const config = this.notificationService.getChannelConfig(channelType);
+            const config = await this.notificationService.getChannelConfig(channelType);
 
             if (!config) {
                 return responseHelper.notFound(res, 'Channel configuration');
@@ -245,27 +221,27 @@ class NotificationController {
     };
 
     /**
-     * 获取通知历史
+     * Get notification history (paginated)
      */
-    getNotificationHistory = (req, res) => {
+    getNotificationHistory = async (req, res) => {
         try {
             const { page = 1, limit = 20, status, type } = req.query;
 
-            const result = this.notificationService.getNotificationHistory({
-                page: parseInt(page),
+            const result = await this.notificationService.getNotificationHistory({
+                page:  parseInt(page),
                 limit: parseInt(limit),
                 status,
-                type
+                type,
             });
 
             responseHelper.success(res, {
                 data: result.data,
                 pagination: {
-                    page: result.page,
-                    limit: result.limit,
-                    total: result.total,
-                    totalPages: result.totalPages
-                }
+                    page:       result.page,
+                    limit:      result.limit,
+                    total:      result.total,
+                    totalPages: result.totalPages,
+                },
             });
         } catch (error) {
             console.error('Error getting notification history:', error);
@@ -276,65 +252,44 @@ class NotificationController {
 
 
     /**
-     * 获取通知统计
+     * Get notification statistics
      */
-    getNotificationStats = (req, res) => {
+    getNotificationStats = async (req, res) => {
         try {
-            const db = this.notificationService.db;
+            const prisma = this.notificationService.prisma;
 
-            const stats = {
-                total: 0,
-                sent: 0,
-                failed: 0,
-                pending: 0,
-                retrying: 0,
-                byType: {},
-                byChannel: {}
-            };
+            const stats = { total: 0, sent: 0, failed: 0, byType: {}, byChannel: {} };
 
-            // 总体统计
-            const totalQuery = `
-                SELECT status, COUNT(*) as count
-                FROM notification_history
-                GROUP BY status
-            `;
-            const totalStats = db.prepare(totalQuery).all();
-            
-            totalStats.forEach(stat => {
-                stats.total += stat.count;
-                stats[stat.status] = stat.count;
+            // Overall counts grouped by status
+            const totalStats = await prisma.notificationHistory.groupBy({
+                by:     ['status'],
+                _count: { status: true },
+            });
+            totalStats.forEach((s) => {
+                stats.total += s._count.status;
+                stats[s.status] = s._count.status;
             });
 
-            // 按类型统计
-            const typeQuery = `
-                SELECT notification_type, status, COUNT(*) as count
-                FROM notification_history
-                GROUP BY notification_type, status
-            `;
-            const typeStats = db.prepare(typeQuery).all();
-
-            typeStats.forEach(stat => {
-                if (!stats.byType[stat.notification_type]) {
-                    stats.byType[stat.notification_type] = { total: 0 };
-                }
-                stats.byType[stat.notification_type].total += stat.count;
-                stats.byType[stat.notification_type][stat.status] = stat.count;
+            // By type + status
+            const typeStats = await prisma.notificationHistory.groupBy({
+                by:     ['notification_type', 'status'],
+                _count: { status: true },
+            });
+            typeStats.forEach((s) => {
+                if (!stats.byType[s.notification_type]) stats.byType[s.notification_type] = { total: 0 };
+                stats.byType[s.notification_type].total     += s._count.status;
+                stats.byType[s.notification_type][s.status]  = s._count.status;
             });
 
-            // 按渠道统计
-            const channelQuery = `
-                SELECT channel_type, status, COUNT(*) as count
-                FROM notification_history
-                GROUP BY channel_type, status
-            `;
-            const channelStats = db.prepare(channelQuery).all();
-            
-            channelStats.forEach(stat => {
-                if (!stats.byChannel[stat.channel_type]) {
-                    stats.byChannel[stat.channel_type] = { total: 0 };
-                }
-                stats.byChannel[stat.channel_type].total += stat.count;
-                stats.byChannel[stat.channel_type][stat.status] = stat.count;
+            // By channel + status
+            const channelStats = await prisma.notificationHistory.groupBy({
+                by:     ['channel_type', 'status'],
+                _count: { status: true },
+            });
+            channelStats.forEach((s) => {
+                if (!stats.byChannel[s.channel_type]) stats.byChannel[s.channel_type] = { total: 0 };
+                stats.byChannel[s.channel_type].total     += s._count.status;
+                stats.byChannel[s.channel_type][s.status]  = s._count.status;
             });
 
             responseHelper.success(res, stats);

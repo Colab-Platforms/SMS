@@ -20,13 +20,13 @@ function errorHandler(err, req, res, next) {
     let code = err.code;
 
     // 处理特定类型的错误
-    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE' || err.code === 'P2002') {
         status = 409;
         message = 'Resource already exists';
-    } else if (err.code === 'SQLITE_CONSTRAINT_FOREIGN_KEY') {
+    } else if (err.code === 'SQLITE_CONSTRAINT_FOREIGN_KEY' || err.code === 'P2003') {
         status = 400;
         message = 'Invalid reference to related resource';
-    } else if (err.code === 'SQLITE_CONSTRAINT_CHECK') {
+    } else if (err.code === 'SQLITE_CONSTRAINT_CHECK' || err.code === 'P2004') {
         status = 400;
         message = 'Invalid data format or value';
     } else if (err.name === 'ValidationError') {

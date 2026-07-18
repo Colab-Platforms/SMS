@@ -22,7 +22,7 @@ class SubscriptionController {
      */
     getSubscriptionById = asyncHandler(async (req, res) => {
         const { id } = req.params;
-        const subscription = await this.subscriptionService.getSubscriptionById(id);
+        const subscription = await this.subscriptionService.getSubscriptionById(parseInt(id, 10));
         handleQueryResult(res, subscription, 'Subscription');
     });
 
@@ -33,7 +33,7 @@ class SubscriptionController {
         const subscriptionData = req.body;
 
         // 验证数据（包含外键验证）
-        const validator = validateSubscriptionWithForeignKeys(subscriptionData, this.db);
+        const validator = await validateSubscriptionWithForeignKeys(subscriptionData, this.db);
         if (validator.hasErrors()) {
             return validationError(res, validator.getErrors());
         }
@@ -54,7 +54,7 @@ class SubscriptionController {
 
         // 验证每个订阅
         for (let i = 0; i < subscriptionsData.length; i++) {
-            const validator = validateSubscriptionWithForeignKeys(subscriptionsData[i], this.db);
+            const validator = await validateSubscriptionWithForeignKeys(subscriptionsData[i], this.db);
             if (validator.hasErrors()) {
                 return validationError(res, `Subscription ${i + 1}: ${validator.getErrors().map(e => e.message).join(', ')}`);
             }
@@ -72,7 +72,7 @@ class SubscriptionController {
         const updateData = req.body;
 
         // 验证数据（更新时不需要所有字段都必填）
-        const validator = validateSubscriptionWithForeignKeys(updateData, this.db);
+        const validator = await validateSubscriptionWithForeignKeys(updateData, this.db);
         // 移除必填验证，因为更新时可能只更新部分字段
         validator.errors = validator.errors.filter(error => !error.message.includes('is required'));
 
@@ -80,7 +80,7 @@ class SubscriptionController {
             return validationError(res, validator.getErrors());
         }
 
-        const result = await this.subscriptionService.updateSubscription(id, updateData);
+        const result = await this.subscriptionService.updateSubscription(parseInt(id, 10), updateData);
         handleDbResult(res, result, 'update', 'Subscription');
     });
 
@@ -89,7 +89,7 @@ class SubscriptionController {
      */
     deleteSubscription = asyncHandler(async (req, res) => {
         const { id } = req.params;
-        const result = await this.subscriptionService.deleteSubscription(id);
+        const result = await this.subscriptionService.deleteSubscription(parseInt(id, 10));
         handleDbResult(res, result, 'delete', 'Subscription');
     });
 
@@ -123,7 +123,7 @@ class SubscriptionController {
      */
     getSubscriptionsByCategory = asyncHandler(async (req, res) => {
         const { category } = req.params;
-        const subscriptions = await this.subscriptionService.getSubscriptionsByCategory(category);
+        const subscriptions = await this.subscriptionService.getSubscriptionsByCategory(parseInt(category, 10));
         handleQueryResult(res, subscriptions, 'Subscriptions by category');
     });
 
@@ -154,7 +154,7 @@ class SubscriptionController {
      */
     getSubscriptionPaymentHistory = asyncHandler(async (req, res) => {
         const { id } = req.params;
-        const paymentHistory = await this.subscriptionService.getSubscriptionPaymentHistory(id);
+        const paymentHistory = await this.subscriptionService.getSubscriptionPaymentHistory(parseInt(id, 10));
         handleQueryResult(res, paymentHistory, 'Payment history');
     });
 

@@ -1,271 +1,273 @@
 const logger = require('./logger');
 
 /**
- * 通用数据库操作基类
- * 提供标准的 CRUD 操作和错误处理
+ * Model name mapping: table name (snake_case plural) → Prisma model accessor (camelCase singular)
+ * Used so subclasses can pass their table names and we map them to Prisma delegates.
+ */
+const TABLE_TO_MODEL = {
+    users: 'user',
+    settings: 'settings',
+    exchange_rates: 'exchangeRate',
+    categories: 'category',
+    payment_methods: 'paymentMethod',
+    subscriptions: 'subscription',
+    payment_history: 'paymentHistory',
+    monthly_category_summary: 'monthlyCategorySummary',
+};
+
+/**
+ * Generic async database base class backed by Prisma ORM.
+ * Provides standard CRUD operations that subclasses can use or override.
+ *
+ * IMPORTANT DIFFERENCES from the old better-sqlite3 version:
+ *  - All methods are async (return Promises)
+ *  - create() returns the full created record (not { lastInsertRowid })
+ *  - update() returns the full updated record (not { changes })
+ *  - delete() returns the deleted record
+ *  - transaction() wraps prisma.$transaction
  */
 class BaseRepository {
-    constructor(db, tableName) {
-        this.db = db;
+    constructor(prisma, tableName) {
+        this.prisma = prisma;
         this.tableName = tableName;
-    }
 
-    /**
-     * 查询所有记录
-     * @param {Object} options - 查询选项
-     * @param {Object} options.filters - 过滤条件
-     * @param {string} options.orderBy - 排序字段
-     * @param {number} options.limit - 限制数量
-     * @param {number} options.offset - 偏移量
-     * @returns {Array} 查询结果
-     */
-    findAll(options = {}) {
-        const { filters = {}, orderBy, limit, offset } = options;
-        
-        let query = `SELECT * FROM ${this.tableName}`;
-        const params = [];
-        
-        // 构建 WHERE 条件
-        const whereConditions = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        });
-        
-        if (whereConditions.length > 0) {
-            query += ` WHERE ${whereConditions.join(' AND ')}`;
+        const modelName = TABLE_TO_MODEL[tableName];
+        if (!modelName) {
+            throw new Error(`BaseRepository: unknown table name "${tableName}". Add it to TABLE_TO_MODEL.`);
         }
-        
-        // 添加排序
-        if (orderBy) {
-            query += ` ORDER BY ${orderBy}`;
+
+        // this.model is the Prisma model delegate (e.g. prisma.subscription)
+        this.model = prisma[modelName];
+        this.modelName = modelName;
+    }
+
+    /**
+     * Find all records matching optional filters, order, limit, offset.
+     * @param {Object} options
+     * @param {Object} options.filters - key/value WHERE conditions (equality only)
+     * @param {string|Object} options.orderBy - e.g. 'name ASC' or { name: 'asc' }
+     * @param {number} options.limit
+     * @param {number} options.offset
+     * @returns {Promise<Array>}
+     */
+    async findAll(options = {}) {
+        try {
+            const { filters = {}, orderBy, limit, offset } = options;
+
+            const where = this._buildWhere(filters);
+            const orderByClause = this._buildOrderBy(orderBy);
+
+            const args = { where };
+            if (orderByClause) args.orderBy = orderByClause;
+            if (limit) args.take = limit;
+            if (offset) args.skip = offset;
+
+            return await this.model.findMany(args);
+        } catch (error) {
+            logger.error(`BaseRepository.findAll failed on ${this.tableName}:`, error.message);
+            throw error;
         }
-        
-        // 添加分页
-        if (limit) {
-            query += ` LIMIT ?`;
-            params.push(limit);
-            
-            if (offset) {
-                query += ` OFFSET ?`;
-                params.push(offset);
-            }
+    }
+
+    /**
+     * Find a single record by its primary key id.
+     * @param {number|string} id
+     * @param {string} idField - currently only 'id' supported
+     * @returns {Promise<Object|null>}
+     */
+    async findById(id, idField = 'id') {
+        try {
+            return await this.model.findUnique({ where: { [idField]: id } });
+        } catch (error) {
+            logger.error(`BaseRepository.findById failed on ${this.tableName}:`, error.message);
+            throw error;
         }
-        
-        const stmt = this.db.prepare(query);
-        return stmt.all(...params);
     }
 
     /**
-     * 根据ID查询单条记录
-     * @param {number|string} id - 记录ID
-     * @param {string} idField - ID字段名，默认为 'id'
-     * @returns {Object|null} 查询结果
+     * Find the first record matching filters.
+     * @param {Object} filters
+     * @returns {Promise<Object|null>}
      */
-    findById(id, idField = 'id') {
-        const stmt = this.db.prepare(`SELECT * FROM ${this.tableName} WHERE ${idField} = ?`);
-        return stmt.get(id);
-    }
-
-    /**
-     * 根据条件查询单条记录
-     * @param {Object} filters - 过滤条件
-     * @returns {Object|null} 查询结果
-     */
-    findOne(filters = {}) {
-        let query = `SELECT * FROM ${this.tableName}`;
-        const params = [];
-        
-        const whereConditions = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        });
-        
-        if (whereConditions.length > 0) {
-            query += ` WHERE ${whereConditions.join(' AND ')}`;
+    async findOne(filters = {}) {
+        try {
+            const where = this._buildWhere(filters);
+            return await this.model.findFirst({ where });
+        } catch (error) {
+            logger.error(`BaseRepository.findOne failed on ${this.tableName}:`, error.message);
+            throw error;
         }
-        
-        query += ' LIMIT 1';
-        
-        const stmt = this.db.prepare(query);
-        return stmt.get(...params);
     }
 
     /**
-     * 创建新记录
-     * @param {Object} data - 要插入的数据
-     * @returns {Object} 插入结果，包含 lastInsertRowid
+     * Create a new record.
+     * @param {Object} data
+     * @returns {Promise<Object>} The created record (full object, NOT { lastInsertRowid })
      */
-    create(data) {
-        const fields = Object.keys(data);
-        const values = Object.values(data);
-        const placeholders = fields.map(() => '?').join(', ');
-        
-        const query = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...values);
+    async create(data) {
+        try {
+            return await this.model.create({ data });
+        } catch (error) {
+            logger.error(`BaseRepository.create failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
     }
 
     /**
-     * 批量创建记录
-     * @param {Array} dataArray - 要插入的数据数组
-     * @returns {Array} 插入结果数组
+     * Create many records in a single transaction.
+     * @param {Array} dataArray
+     * @returns {Promise<{ count: number }>} Number of created records
      */
-    createMany(dataArray) {
+    async createMany(dataArray) {
         if (!Array.isArray(dataArray) || dataArray.length === 0) {
-            return [];
+            return { count: 0 };
         }
-        
-        const fields = Object.keys(dataArray[0]);
-        const placeholders = fields.map(() => '?').join(', ');
-        const query = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-        
-        const stmt = this.db.prepare(query);
-        const transaction = this.db.transaction((items) => {
-            const results = [];
-            for (const item of items) {
-                const values = fields.map(field => item[field]);
-                results.push(stmt.run(...values));
-            }
-            return results;
-        });
-        
-        return transaction(dataArray);
+        try {
+            return await this.model.createMany({ data: dataArray, skipDuplicates: false });
+        } catch (error) {
+            logger.error(`BaseRepository.createMany failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
     }
 
     /**
-     * 更新记录
-     * @param {number|string} id - 记录ID
-     * @param {Object} data - 要更新的数据
-     * @param {string} idField - ID字段名，默认为 'id'
-     * @returns {Object} 更新结果
+     * Update a record by id.
+     * @param {number|string} id
+     * @param {Object} data
+     * @param {string} idField
+     * @returns {Promise<Object>} The updated record
      */
-    update(id, data, idField = 'id') {
-        const fields = Object.keys(data);
-        const values = Object.values(data);
-        const setClause = fields.map(field => `${field} = ?`).join(', ');
-        
-        const query = `UPDATE ${this.tableName} SET ${setClause} WHERE ${idField} = ?`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...values, id);
+    async update(id, data, idField = 'id') {
+        try {
+            return await this.model.update({
+                where: { [idField]: id },
+                data,
+            });
+        } catch (error) {
+            logger.error(`BaseRepository.update failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
     }
 
     /**
-     * 根据条件更新记录
-     * @param {Object} filters - 过滤条件
-     * @param {Object} data - 要更新的数据
-     * @returns {Object} 更新结果
+     * Update all records matching filters.
+     * @param {Object} filters
+     * @param {Object} data
+     * @returns {Promise<{ count: number }>}
      */
-    updateWhere(filters, data) {
-        const updateFields = Object.keys(data);
-        const updateValues = Object.values(data);
-        const setClause = updateFields.map(field => `${field} = ?`).join(', ');
-        
-        const whereConditions = [];
-        const whereValues = [];
-        Object.entries(filters).forEach(([key, value]) => {
+    async updateWhere(filters, data) {
+        if (!filters || Object.keys(filters).length === 0) {
+            throw new Error('updateWhere: filters cannot be empty');
+        }
+        try {
+            const where = this._buildWhere(filters);
+            return await this.model.updateMany({ where, data });
+        } catch (error) {
+            logger.error(`BaseRepository.updateWhere failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Delete a record by id.
+     * @param {number|string} id
+     * @param {string} idField
+     * @returns {Promise<Object>} The deleted record
+     */
+    async delete(id, idField = 'id') {
+        try {
+            return await this.model.delete({ where: { [idField]: id } });
+        } catch (error) {
+            logger.error(`BaseRepository.delete failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Delete all records matching filters.
+     * @param {Object} filters
+     * @returns {Promise<{ count: number }>}
+     */
+    async deleteWhere(filters) {
+        if (!filters || Object.keys(filters).length === 0) {
+            throw new Error('deleteWhere: filters cannot be empty');
+        }
+        try {
+            const where = this._buildWhere(filters);
+            return await this.model.deleteMany({ where });
+        } catch (error) {
+            logger.error(`BaseRepository.deleteWhere failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Count records matching filters.
+     * @param {Object} filters
+     * @returns {Promise<number>}
+     */
+    async count(filters = {}) {
+        try {
+            const where = this._buildWhere(filters);
+            return await this.model.count({ where });
+        } catch (error) {
+            logger.error(`BaseRepository.count failed on ${this.tableName}:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Check if any record exists matching filters.
+     * @param {Object} filters
+     * @returns {Promise<boolean>}
+     */
+    async exists(filters) {
+        const n = await this.count(filters);
+        return n > 0;
+    }
+
+    /**
+     * Execute a set of operations in a Prisma transaction.
+     * @param {Function} callback - receives (tx) prisma transaction client
+     * @returns {Promise<*>}
+     */
+    async transaction(callback) {
+        return await this.prisma.$transaction(callback);
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a Prisma `where` object from a plain filters object.
+     * Only handles equality conditions.
+     */
+    _buildWhere(filters = {}) {
+        const where = {};
+        for (const [key, value] of Object.entries(filters)) {
             if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                whereValues.push(value);
+                where[key] = value;
             }
-        });
-        
-        if (whereConditions.length === 0) {
-            throw new Error('Update without WHERE conditions is not allowed');
         }
-        
-        const query = `UPDATE ${this.tableName} SET ${setClause} WHERE ${whereConditions.join(' AND ')}`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...updateValues, ...whereValues);
+        return where;
     }
 
     /**
-     * 删除记录
-     * @param {number|string} id - 记录ID
-     * @param {string} idField - ID字段名，默认为 'id'
-     * @returns {Object} 删除结果
+     * Convert a SQL-style orderBy string ('name ASC') to Prisma format ({ name: 'asc' }).
+     * Also accepts a Prisma-style object directly.
      */
-    delete(id, idField = 'id') {
-        const stmt = this.db.prepare(`DELETE FROM ${this.tableName} WHERE ${idField} = ?`);
-        return stmt.run(id);
-    }
+    _buildOrderBy(orderBy) {
+        if (!orderBy) return undefined;
+        if (typeof orderBy === 'object') return orderBy;
 
-    /**
-     * 根据条件删除记录
-     * @param {Object} filters - 过滤条件
-     * @returns {Object} 删除结果
-     */
-    deleteWhere(filters) {
-        const whereConditions = [];
-        const whereValues = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                whereValues.push(value);
-            }
+        // Parse "field ASC" or "field DESC" or "field1 ASC, field2 DESC"
+        const parts = orderBy.split(',').map((part) => {
+            const [field, direction = 'ASC'] = part.trim().split(/\s+/);
+            return { [field]: direction.toLowerCase() };
         });
-        
-        if (whereConditions.length === 0) {
-            throw new Error('Delete without WHERE conditions is not allowed');
-        }
-        
-        const query = `DELETE FROM ${this.tableName} WHERE ${whereConditions.join(' AND ')}`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...whereValues);
-    }
 
-    /**
-     * 统计记录数量
-     * @param {Object} filters - 过滤条件
-     * @returns {number} 记录数量
-     */
-    count(filters = {}) {
-        let query = `SELECT COUNT(*) as count FROM ${this.tableName}`;
-        const params = [];
-        
-        const whereConditions = [];
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                whereConditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        });
-        
-        if (whereConditions.length > 0) {
-            query += ` WHERE ${whereConditions.join(' AND ')}`;
-        }
-        
-        const stmt = this.db.prepare(query);
-        const result = stmt.get(...params);
-        return result.count;
-    }
-
-    /**
-     * 检查记录是否存在
-     * @param {Object} filters - 过滤条件
-     * @returns {boolean} 是否存在
-     */
-    exists(filters) {
-        return this.count(filters) > 0;
-    }
-
-    /**
-     * 执行事务
-     * @param {Function} callback - 事务回调函数
-     * @returns {*} 事务结果
-     */
-    transaction(callback) {
-        const transaction = this.db.transaction(callback);
-        return transaction();
+        return parts.length === 1 ? parts[0] : parts;
     }
 }
 

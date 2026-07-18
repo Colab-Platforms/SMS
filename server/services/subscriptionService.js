@@ -6,298 +6,122 @@ const logger = require('../utils/logger');
 const { NotFoundError } = require('../middleware/errorHandler');
 
 class SubscriptionService extends BaseRepository {
-    constructor(db) {
-        super(db, 'subscriptions');
-        this.monthlyCategorySummaryService = new MonthlyCategorySummaryService(db.name);
-        this.notificationService = new NotificationService(db);
+    constructor(prisma) {
+        super(prisma, 'subscriptions');
+        this.monthlyCategorySummaryService = new MonthlyCategorySummaryService(prisma);
+        this.notificationService           = new NotificationService(prisma);
     }
 
     /**
-     * 获取所有订阅（包含关联的 category 和 payment method 数据）
+     * Get all subscriptions with nested category and payment method.
      */
     async getAllSubscriptions() {
-        const query = `
-            SELECT
-                s.*,
-                c.id as category_join_id,
-                c.value as category_join_value,
-                c.label as category_join_label,
-                pm.id as payment_method_join_id,
-                pm.value as payment_method_join_value,
-                pm.label as payment_method_join_label
-            FROM subscriptions s
-            LEFT JOIN categories c ON s.category_id = c.id
-            LEFT JOIN payment_methods pm ON s.payment_method_id = pm.id
-            ORDER BY s.name ASC
-        `;
-
-        const stmt = this.db.prepare(query);
-        const results = stmt.all();
-
-        // 转换数据格式，将关联数据嵌套为对象
-        return results.map(row => ({
-            id: row.id,
-            name: row.name,
-            plan: row.plan,
-            billing_cycle: row.billing_cycle,
-            next_billing_date: row.next_billing_date,
-            last_billing_date: row.last_billing_date,
-            amount: row.amount,
-            currency: row.currency,
-            payment_method_id: row.payment_method_id,
-            start_date: row.start_date,
-            status: row.status,
-            category_id: row.category_id,
-            renewal_type: row.renewal_type,
-            notes: row.notes,
-            website: row.website,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            // 嵌套的关联对象
-            category: row.category_join_id ? {
-                id: row.category_join_id,
-                value: row.category_join_value,
-                label: row.category_join_label
-            } : null,
-            paymentMethod: row.payment_method_join_id ? {
-                id: row.payment_method_join_id,
-                value: row.payment_method_join_value,
-                label: row.payment_method_join_label
-            } : null
-        }));
+        const rows = await this.prisma.subscription.findMany({
+            include: { category: true, paymentMethod: true },
+            orderBy: { name: 'asc' },
+        });
+        return rows.map(this._formatSubscription);
     }
 
     /**
-     * 根据ID获取订阅（包含关联的 category 和 payment method 数据）
+     * Get a single subscription by id.
      */
     async getSubscriptionById(id) {
-        const query = `
-            SELECT
-                s.*,
-                c.id as category_join_id,
-                c.value as category_join_value,
-                c.label as category_join_label,
-                pm.id as payment_method_join_id,
-                pm.value as payment_method_join_value,
-                pm.label as payment_method_join_label
-            FROM subscriptions s
-            LEFT JOIN categories c ON s.category_id = c.id
-            LEFT JOIN payment_methods pm ON s.payment_method_id = pm.id
-            WHERE s.id = ?
-        `;
-
-        const stmt = this.db.prepare(query);
-        const row = stmt.get(id);
-
-        if (!row) {
-            return null;
-        }
-
-        // 转换数据格式，将关联数据嵌套为对象
-        return {
-            id: row.id,
-            name: row.name,
-            plan: row.plan,
-            billing_cycle: row.billing_cycle,
-            next_billing_date: row.next_billing_date,
-            last_billing_date: row.last_billing_date,
-            amount: row.amount,
-            currency: row.currency,
-            payment_method_id: row.payment_method_id,
-            start_date: row.start_date,
-            status: row.status,
-            category_id: row.category_id,
-            renewal_type: row.renewal_type,
-            notes: row.notes,
-            website: row.website,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            // 嵌套的关联对象
-            category: row.category_join_id ? {
-                id: row.category_join_id,
-                value: row.category_join_value,
-                label: row.category_join_label
-            } : null,
-            paymentMethod: row.payment_method_join_id ? {
-                id: row.payment_method_join_id,
-                value: row.payment_method_join_value,
-                label: row.payment_method_join_label
-            } : null
-        };
+        const row = await this.prisma.subscription.findUnique({
+            where:   { id },
+            include: { category: true, paymentMethod: true },
+        });
+        if (!row) return null;
+        return this._formatSubscription(row);
     }
 
     /**
-     * 创建新订阅
+     * Create a new subscription and generate payment history.
      */
     async createSubscription(subscriptionData) {
         const {
-            name,
-            plan,
-            billing_cycle,
-            next_billing_date,
-            amount,
-            currency,
-            payment_method_id,
-            start_date,
-            status = 'active',
-            category_id,
-            renewal_type = 'manual',
-            notes,
-            website
+            name, plan, billing_cycle, next_billing_date, amount, currency,
+            payment_method_id, start_date, status = 'active', category_id,
+            renewal_type = 'manual', notes, website,
         } = subscriptionData;
 
-        // 计算 last_billing_date
-        const last_billing_date = calculateLastBillingDate(
-            next_billing_date, 
-            start_date, 
-            billing_cycle
-        );
+        const last_billing_date = calculateLastBillingDate(next_billing_date, start_date, billing_cycle);
 
-        const result = this.create({
-            name,
-            plan,
-            billing_cycle,
-            next_billing_date,
-            last_billing_date,
-            amount,
-            currency,
-            payment_method_id,
-            start_date,
-            status,
-            category_id,
-            renewal_type,
-            notes,
-            website
+        const record = await this.prisma.subscription.create({
+            data: {
+                name, plan, billing_cycle, amount, currency,
+                payment_method_id: parseInt(payment_method_id),
+                status, category_id: parseInt(category_id),
+                renewal_type, notes, website,
+                next_billing_date: next_billing_date ? new Date(next_billing_date) : null,
+                last_billing_date: last_billing_date ? new Date(last_billing_date) : null,
+                start_date:        start_date        ? new Date(start_date)        : null,
+            },
         });
 
-        // 自动生成支付历史记录
-        if (result.lastInsertRowid) {
-            try {
-                await this.generatePaymentHistory(result.lastInsertRowid, subscriptionData);
-                logger.info(`Payment history generated for subscription ${result.lastInsertRowid}`);
-            } catch (error) {
-                logger.error(`Failed to generate payment history for subscription ${result.lastInsertRowid}:`, error.message);
-            }
+        // Auto-generate historical payment records
+        try {
+            await this.generatePaymentHistory(record.id);
+            logger.info(`Payment history generated for subscription ${record.id}`);
+        } catch (error) {
+            logger.error(`Failed to generate payment history for subscription ${record.id}:`, error.message);
         }
 
-        return result;
+        return record;
     }
 
     /**
-     * 批量创建订阅
+     * Bulk create subscriptions.
      */
     async bulkCreateSubscriptions(subscriptionsData) {
-        // Prepare subscription data for bulk insert
-        const subscriptionRecords = subscriptionsData.map(subscriptionData => {
-            const {
-                name,
-                plan,
-                billing_cycle,
-                next_billing_date,
-                amount,
-                currency,
-                payment_method_id,
-                start_date,
-                status = 'active',
-                category_id,
-                renewal_type = 'manual',
-                notes,
-                website
-            } = subscriptionData;
+        const records = [];
 
-            // Calculate last_billing_date
-            const last_billing_date = calculateLastBillingDate(
-                next_billing_date, 
-                start_date, 
-                billing_cycle
-            );
-
-            return {
-                name,
-                plan,
-                billing_cycle,
-                next_billing_date,
-                last_billing_date,
-                amount,
-                currency,
-                payment_method_id,
-                start_date,
-                status,
-                category_id,
-                renewal_type,
-                notes,
-                website
-            };
-        });
-
-        // Use synchronous bulk insert
-        const results = this.createMany(subscriptionRecords);
-        
-        // Generate payment history for each created subscription (async, outside transaction)
-        for (let i = 0; i < results.length; i++) {
-            const result = results[i];
-            const subscriptionData = subscriptionsData[i];
-            
-            if (result.lastInsertRowid) {
-                try {
-                    await this.generatePaymentHistory(result.lastInsertRowid, subscriptionData);
-                    logger.info(`Payment history generated for subscription ${result.lastInsertRowid}`);
-                } catch (error) {
-                    logger.error(`Failed to generate payment history for subscription ${result.lastInsertRowid}:`, error.message);
-                }
-            }
+        for (const subscriptionData of subscriptionsData) {
+            const record = await this.createSubscription(subscriptionData);
+            records.push(record);
         }
 
-        return results;
+        return records;
     }
 
     /**
-     * 更新订阅
+     * Update a subscription and optionally regenerate payment history.
      */
     async updateSubscription(id, updateData) {
-        // 检查订阅是否存在
-        const existingSubscription = this.findById(id);
-        if (!existingSubscription) {
-            throw new NotFoundError('Subscription');
-        }
+        const existingSubscription = await this.findById(id);
+        if (!existingSubscription) throw new NotFoundError('Subscription');
 
-        // 如果更新了计费周期或日期，重新计算计费日期
+        // Recalculate billing dates if relevant fields changed
         if (updateData.billing_cycle || updateData.next_billing_date || updateData.start_date) {
             const billing_cycle = updateData.billing_cycle || existingSubscription.billing_cycle;
-            const start_date = updateData.start_date || existingSubscription.start_date;
+            const start_date    = updateData.start_date    || existingSubscription.start_date;
 
-            // 确定 next_billing_date：若客户端明确提供，则以客户端为准；
-            // 否则当计费周期或开始日期变更时，从 start_date + billing_cycle 重新计算。
             let next_billing_date;
             if (updateData.next_billing_date) {
                 next_billing_date = updateData.next_billing_date;
             } else if (updateData.start_date || updateData.billing_cycle) {
-                const currentDate = getTodayString();
-                next_billing_date = calculateNextBillingDateFromStart(
-                    start_date,
-                    currentDate,
-                    billing_cycle
-                );
+                next_billing_date = calculateNextBillingDateFromStart(start_date, getTodayString(), billing_cycle);
                 updateData.next_billing_date = next_billing_date;
             } else {
                 next_billing_date = existingSubscription.next_billing_date;
             }
 
-            // 重新计算 last_billing_date（基于最终的 next_billing_date 与 start_date）
-            updateData.last_billing_date = calculateLastBillingDate(
-                next_billing_date,
-                start_date,
-                billing_cycle
-            );
+            updateData.last_billing_date = calculateLastBillingDate(next_billing_date, start_date, billing_cycle);
         }
 
-        const result = this.update(id, updateData);
+        // Convert date strings to Date objects
+        const data = { ...updateData };
+        if (data.next_billing_date) data.next_billing_date = new Date(data.next_billing_date);
+        if (data.last_billing_date) data.last_billing_date = new Date(data.last_billing_date);
+        if (data.start_date)        data.start_date        = new Date(data.start_date);
+        if (data.category_id)       data.category_id       = parseInt(data.category_id);
+        if (data.payment_method_id) data.payment_method_id = parseInt(data.payment_method_id);
 
-        // 如果更新了关键字段，重新生成支付历史
+        const result = await this.update(id, data);
+
+        // Regenerate payment history on key field changes
         const keyFields = ['amount', 'billing_cycle', 'start_date', 'status'];
-        const hasKeyFieldUpdate = keyFields.some(field => updateData.hasOwnProperty(field));
-        
-        if (hasKeyFieldUpdate) {
+        if (keyFields.some((f) => updateData.hasOwnProperty(f))) {
             try {
                 await this.regeneratePaymentHistory(id);
                 logger.info(`Payment history regenerated for subscription ${id}`);
@@ -306,62 +130,44 @@ class SubscriptionService extends BaseRepository {
             }
         }
 
-        // 发送订阅变更通知（异步触发，不阻塞请求）
+        // Async notification (fire-and-forget)
         this.notificationService
-            .sendNotification({
-                subscriptionId: id,
-                notificationType: 'subscription_change'
-            })
-            .then(() => {
-                logger.info(`Subscription change notification dispatched for subscription ${id}`);
-            })
-            .catch((error) => {
-                logger.error(
-                    `Failed to send subscription change notification for subscription ${id}:`,
-                    error.message
-                );
-            });
+            .sendNotification({ subscriptionId: id, notificationType: 'subscription_change' })
+            .then(() => logger.info(`Subscription change notification dispatched for subscription ${id}`))
+            .catch((error) => logger.error(`Failed to send subscription change notification for subscription ${id}:`, error.message));
 
         return result;
     }
 
     /**
-     * 删除订阅
+     * Delete a subscription and recalculate affected monthly summaries.
      */
     async deleteSubscription(id) {
-        // 检查订阅是否存在
-        const existingSubscription = this.findById(id);
-        if (!existingSubscription) {
-            throw new NotFoundError('Subscription');
-        }
+        const existingSubscription = await this.findById(id);
+        if (!existingSubscription) throw new NotFoundError('Subscription');
 
-        // 在删除前获取相关的支付历史记录的年月信息
-        const paymentMonthsQuery = `
-            SELECT DISTINCT 
-                strftime('%Y', payment_date) as year,
-                strftime('%m', payment_date) as month
+        // Get months with payment history before deleting
+        const paymentMonths = await this.prisma.$queryRaw`
+            SELECT DISTINCT
+                EXTRACT(YEAR  FROM payment_date)::int AS year,
+                EXTRACT(MONTH FROM payment_date)::int AS month
             FROM payment_history
-            WHERE subscription_id = ?
-            AND status = 'succeeded'
+            WHERE subscription_id = ${id} AND status = 'succeeded'
         `;
-        const paymentMonths = this.db.prepare(paymentMonthsQuery).all(id);
 
-        // 删除订阅（级联删除会自动处理相关的 payment_history 和 monthly_expenses）
-        const result = this.delete(id);
+        // Delete (cascades payment_history via FK)
+        const result = await this.delete(id);
 
-        // 重新计算受影响月份的月度分类汇总
+        // Recalculate affected months
         if (paymentMonths.length > 0) {
             logger.info(`Recalculating monthly category summaries for ${paymentMonths.length} months after subscription deletion`);
-            paymentMonths.forEach(({ year, month }) => {
+            for (const { year, month } of paymentMonths) {
                 try {
-                    this.monthlyCategorySummaryService.updateMonthlyCategorySummary(
-                        parseInt(year), 
-                        parseInt(month)
-                    );
+                    await this.monthlyCategorySummaryService.updateMonthlyCategorySummary(Number(year), Number(month));
                 } catch (error) {
                     logger.error(`Failed to update monthly category summary for ${year}-${month}:`, error.message);
                 }
-            });
+            }
         }
 
         logger.info(`Subscription deleted: ${existingSubscription.name} (ID: ${id}), related data cleaned up automatically`);
@@ -369,202 +175,165 @@ class SubscriptionService extends BaseRepository {
     }
 
     /**
-     * 获取订阅统计信息
+     * Get subscription statistics.
      */
     async getSubscriptionStats() {
-        const totalQuery = `
-            SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN status = 'active' THEN 1 END) as active,
-                COUNT(CASE WHEN status = 'trial' THEN 1 END) as trial,
-                COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
-                SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END) as total_active_amount,
-                AVG(CASE WHEN status = 'active' THEN amount ELSE NULL END) as avg_active_amount
-            FROM subscriptions
-        `;
-
-        const categoryQuery = `
-            SELECT 
-                category,
-                COUNT(*) as count,
-                SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END) as total_amount
-            FROM subscriptions
-            GROUP BY category
-            ORDER BY count DESC
-        `;
-
-        const billingCycleQuery = `
-            SELECT 
-                billing_cycle,
-                COUNT(*) as count,
-                SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END) as total_amount
-            FROM subscriptions
-            GROUP BY billing_cycle
-            ORDER BY count DESC
-        `;
-
-        const totalStats = this.db.prepare(totalQuery).get();
-        const categoryStats = this.db.prepare(categoryQuery).all();
-        const billingCycleStats = this.db.prepare(billingCycleQuery).all();
+        const [totalStats, categoryStats, billingCycleStats] = await Promise.all([
+            this.prisma.$queryRaw`
+                SELECT
+                    COUNT(*)::int                                                           AS total,
+                    COUNT(CASE WHEN status = 'active'    THEN 1 END)::int                  AS active,
+                    COUNT(CASE WHEN status = 'trial'     THEN 1 END)::int                  AS trial,
+                    COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int                  AS cancelled,
+                    SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END)::float         AS total_active_amount,
+                    AVG(CASE WHEN status = 'active' THEN amount END)::float                AS avg_active_amount
+                FROM subscriptions
+            `,
+            this.prisma.$queryRaw`
+                SELECT
+                    category_id,
+                    COUNT(*)::int                                              AS count,
+                    SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END)::float AS total_amount
+                FROM subscriptions
+                GROUP BY category_id
+                ORDER BY count DESC
+            `,
+            this.prisma.$queryRaw`
+                SELECT
+                    billing_cycle,
+                    COUNT(*)::int                                              AS count,
+                    SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END)::float AS total_amount
+                FROM subscriptions
+                GROUP BY billing_cycle
+                ORDER BY count DESC
+            `,
+        ]);
 
         return {
-            total: totalStats,
-            byCategory: categoryStats,
-            byBillingCycle: billingCycleStats
+            total:          totalStats[0],
+            byCategory:     categoryStats,
+            byBillingCycle: billingCycleStats,
         };
     }
 
     /**
-     * 获取即将到期的订阅
+     * Get subscriptions due for renewal in the next N days.
      */
     async getUpcomingRenewals(days = 7) {
+        const today      = new Date(getTodayString());
         const futureDate = new Date();
         futureDate.setDate(futureDate.getDate() + days);
-        const futureDateString = futureDate.toISOString().split('T')[0];
 
-        const query = `
-            SELECT * FROM subscriptions
-            WHERE status = 'active' 
-            AND next_billing_date <= ?
-            AND next_billing_date >= ?
-            ORDER BY next_billing_date ASC
-        `;
-
-        const stmt = this.db.prepare(query);
-        return stmt.all(futureDateString, getTodayString());
+        return await this.prisma.subscription.findMany({
+            where: {
+                status:            'active',
+                next_billing_date: { gte: today, lte: futureDate },
+            },
+            orderBy: { next_billing_date: 'asc' },
+        });
     }
 
     /**
-     * 获取过期的订阅
+     * Get overdue/expired subscriptions.
      */
     async getExpiredSubscriptions() {
-        const query = `
-            SELECT * FROM subscriptions
-            WHERE status = 'active' 
-            AND next_billing_date < ?
-            ORDER BY next_billing_date ASC
-        `;
-
-        const stmt = this.db.prepare(query);
-        return stmt.all(getTodayString());
+        const today = new Date(getTodayString());
+        return await this.prisma.subscription.findMany({
+            where: {
+                status:            'active',
+                next_billing_date: { lt: today },
+            },
+            orderBy: { next_billing_date: 'asc' },
+        });
     }
 
-    /**
-     * 按类别获取订阅
-     */
     async getSubscriptionsByCategory(category) {
-        return this.findAll({ 
-            filters: { category },
-            orderBy: 'name ASC'
-        });
+        return await this.findAll({ filters: { category_id: category }, orderBy: { name: 'asc' } });
     }
 
-    /**
-     * 按状态获取订阅
-     */
     async getSubscriptionsByStatus(status) {
-        return this.findAll({ 
-            filters: { status },
-            orderBy: 'name ASC'
+        return await this.findAll({ filters: { status }, orderBy: { name: 'asc' } });
+    }
+
+    async searchSubscriptions(query) {
+        return await this.prisma.subscription.findMany({
+            where: {
+                OR: [
+                    { name:  { contains: query, mode: 'insensitive' } },
+                    { plan:  { contains: query, mode: 'insensitive' } },
+                    { notes: { contains: query, mode: 'insensitive' } },
+                ],
+            },
+            orderBy: { name: 'asc' },
+        });
+    }
+
+    async getSubscriptionPaymentHistory(subscriptionId) {
+        return await this.prisma.paymentHistory.findMany({
+            where:   { subscription_id: subscriptionId },
+            orderBy: { payment_date: 'desc' },
         });
     }
 
     /**
-     * 搜索订阅
-     */
-    async searchSubscriptions(query) {
-        const searchQuery = `
-            SELECT * FROM subscriptions
-            WHERE name LIKE ? OR plan LIKE ? OR notes LIKE ?
-            ORDER BY name ASC
-        `;
-
-        const searchTerm = `%${query}%`;
-        const stmt = this.db.prepare(searchQuery);
-        return stmt.all(searchTerm, searchTerm, searchTerm);
-    }
-
-    /**
-     * 获取订阅的支付历史
-     */
-    async getSubscriptionPaymentHistory(subscriptionId) {
-        const query = `
-            SELECT * FROM payment_history
-            WHERE subscription_id = ?
-            ORDER BY payment_date DESC
-        `;
-
-        const stmt = this.db.prepare(query);
-        return stmt.all(subscriptionId);
-    }
-
-    /**
-     * 重置所有订阅数据
+     * Reset all subscriptions and monthly summaries.
      */
     async resetAllSubscriptions() {
-        return this.transaction(() => {
-            // 删除所有订阅（级联删除会处理相关数据）
-            const subscriptionResult = this.db.prepare('DELETE FROM subscriptions').run();
+        const [subscriptionResult, monthlyCategorySummaryResult] = await this.prisma.$transaction([
+            this.prisma.subscription.deleteMany({}),
+            this.prisma.monthlyCategorySummary.deleteMany({}),
+        ]);
 
-            // 显式清理月度分类汇总表
-            const monthlyCategorySummaryResult = this.db.prepare('DELETE FROM monthly_category_summary').run();
+        logger.info(`Reset completed: ${subscriptionResult.count} subscriptions, ${monthlyCategorySummaryResult.count} monthly category summaries deleted`);
 
-            logger.info(`Reset completed: ${subscriptionResult.changes} subscriptions, ${monthlyCategorySummaryResult.changes} monthly category summaries deleted`);
-
-            return {
-                subscriptions: subscriptionResult.changes,
-                monthlyCategorySummary: monthlyCategorySummaryResult.changes,
-                message: 'All subscription data has been reset successfully'
-            };
-        });
+        return {
+            subscriptions:             subscriptionResult.count,
+            monthlyCategorySummary:    monthlyCategorySummaryResult.count,
+            message:                   'All subscription data has been reset successfully',
+        };
     }
 
     /**
-     * 生成支付历史记录
+     * Generate payment history for a subscription from its start date to now.
      */
     async generatePaymentHistory(subscriptionId) {
         logger.info(`Generating payment history for subscription ${subscriptionId}`);
 
         try {
-            // 获取完整的订阅信息
-            const fullSubscription = this.findById(subscriptionId);
-            if (!fullSubscription) {
-                throw new Error(`Subscription ${subscriptionId} not found`);
-            }
+            const subscription = await this.findById(subscriptionId);
+            if (!subscription) throw new Error(`Subscription ${subscriptionId} not found`);
 
-            // 生成从开始日期到现在的支付记录
-            const payments = this._generateHistoricalPayments(fullSubscription);
+            const payments = this._generateHistoricalPayments(subscription);
+            if (payments.length === 0) return;
 
-            // 插入支付记录
-            const insertPayment = this.db.prepare(`
-                INSERT INTO payment_history (
-                    subscription_id, payment_date, amount_paid, currency,
-                    billing_period_start, billing_period_end, status, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            for (const payment of payments) {
-                insertPayment.run(
-                    subscriptionId,
-                    payment.payment_date,
-                    fullSubscription.amount,
-                    fullSubscription.currency,
-                    payment.billing_period_start,
-                    payment.billing_period_end,
-                    'succeeded',
-                    'Auto-generated from subscription data'
-                );
-            }
+            // Bulk insert
+            await this.prisma.paymentHistory.createMany({
+                data: payments.map((p) => ({
+                    subscription_id:      subscriptionId,
+                    payment_date:         new Date(p.payment_date),
+                    amount_paid:          subscription.amount,
+                    currency:             subscription.currency,
+                    billing_period_start: new Date(p.billing_period_start),
+                    billing_period_end:   new Date(p.billing_period_end),
+                    status:               'succeeded',
+                    notes:                'Auto-generated from subscription data',
+                })),
+            });
 
             logger.info(`Generated ${payments.length} payment history records for subscription ${subscriptionId}`);
 
-            // 触发月度分类汇总重新计算
-            if (this.monthlyCategorySummaryService && payments.length > 0) {
-                // 获取最新插入的支付记录ID并处理
-                const lastPaymentId = this.db.prepare('SELECT last_insert_rowid() as id').get().id;
-                for (let i = 0; i < payments.length; i++) {
-                    const paymentId = lastPaymentId - payments.length + 1 + i;
-                    this.monthlyCategorySummaryService.processNewPayment(paymentId);
+            // Refresh monthly summaries for all months covered
+            const monthsSet = new Set();
+            for (const p of payments) {
+                const d = new Date(p.payment_date);
+                monthsSet.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+            }
+            for (const key of monthsSet) {
+                const [year, month] = key.split('-').map(Number);
+                try {
+                    await this.monthlyCategorySummaryService.updateMonthlyCategorySummary(year, month);
+                } catch (error) {
+                    logger.error(`Failed to update monthly summary for ${key}:`, error.message);
                 }
             }
         } catch (error) {
@@ -574,99 +343,93 @@ class SubscriptionService extends BaseRepository {
     }
 
     /**
-     * 重新生成支付历史记录
+     * Delete existing payment history and regenerate it.
      */
     async regeneratePaymentHistory(subscriptionId) {
         logger.info(`Regenerating payment history for subscription ${subscriptionId}`);
-
         try {
-            // 获取订阅信息
-            const subscription = this.findById(subscriptionId);
-            if (!subscription) {
-                throw new Error(`Subscription ${subscriptionId} not found`);
-            }
+            const subscription = await this.findById(subscriptionId);
+            if (!subscription) throw new Error(`Subscription ${subscriptionId} not found`);
 
-            // 删除现有的支付历史记录
-            const deleteStmt = this.db.prepare('DELETE FROM payment_history WHERE subscription_id = ?');
-            const deleteResult = deleteStmt.run(subscriptionId);
-            logger.info(`Deleted ${deleteResult.changes} existing payment records for subscription ${subscriptionId}`);
+            const deleted = await this.prisma.paymentHistory.deleteMany({ where: { subscription_id: subscriptionId } });
+            logger.info(`Deleted ${deleted.count} existing payment records for subscription ${subscriptionId}`);
 
-            // 重新生成支付历史
-            await this.generatePaymentHistory(subscriptionId, subscription);
+            await this.generatePaymentHistory(subscriptionId);
         } catch (error) {
             logger.error(`Failed to regenerate payment history for subscription ${subscriptionId}:`, error.message);
             throw error;
         }
     }
 
-    /**
-     * 生成历史支付记录的辅助方法
-     * @private
-     */
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
     _generateHistoricalPayments(subscription) {
-        const payments = [];
+        const payments  = [];
+        if (!subscription.start_date) return payments;
+
         const startDate = new Date(subscription.start_date);
-        const today = new Date();
+        const today     = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // 从开始日期到最后计费日期或今天生成支付记录
-        let currentDate = new Date(startDate);
-        const endDate = subscription.last_billing_date ?
-            new Date(subscription.last_billing_date) : today;
+        const endDate = subscription.last_billing_date
+            ? new Date(subscription.last_billing_date)
+            : today;
 
+        let currentDate = new Date(startDate);
         while (currentDate <= endDate) {
             const billingPeriodEnd = this._calculateNextBillingDate(currentDate, subscription.billing_cycle);
-
             payments.push({
-                payment_date: currentDate.toISOString().split('T')[0],
+                payment_date:         currentDate.toISOString().split('T')[0],
                 billing_period_start: currentDate.toISOString().split('T')[0],
-                billing_period_end: billingPeriodEnd.toISOString().split('T')[0]
+                billing_period_end:   billingPeriodEnd.toISOString().split('T')[0],
             });
-
-            // 移动到下一个计费周期
             currentDate = new Date(billingPeriodEnd);
         }
 
         return payments;
     }
 
-    /**
-     * 计算下一个计费日期的辅助方法
-     * @private
-     */
     _calculateNextBillingDate(currentDate, billingCycle) {
         const nextDate = new Date(currentDate);
-
         switch (billingCycle) {
-            case 'monthly':
-                nextDate.setMonth(nextDate.getMonth() + 1);
-                break;
-            case 'quarterly':
-                nextDate.setMonth(nextDate.getMonth() + 3);
-                break;
-            case 'semiannual':
-                nextDate.setMonth(nextDate.getMonth() + 6);
-                break;
-            case 'yearly':
-                nextDate.setFullYear(nextDate.getFullYear() + 1);
-                break;
-            default:
-                throw new Error(`Unsupported billing cycle: ${billingCycle}`);
+            case 'monthly':    nextDate.setMonth(nextDate.getMonth() + 1);         break;
+            case 'quarterly':  nextDate.setMonth(nextDate.getMonth() + 3);         break;
+            case 'semiannual': nextDate.setMonth(nextDate.getMonth() + 6);         break;
+            case 'yearly':     nextDate.setFullYear(nextDate.getFullYear() + 1);   break;
+            default: throw new Error(`Unsupported billing cycle: ${billingCycle}`);
         }
-
         return nextDate;
     }
 
-    /**
-     * 关闭资源
-     */
+    _formatSubscription(row) {
+        return {
+            id:                row.id,
+            name:              row.name,
+            plan:              row.plan,
+            billing_cycle:     row.billing_cycle,
+            next_billing_date: row.next_billing_date,
+            last_billing_date: row.last_billing_date,
+            amount:            row.amount,
+            currency:          row.currency,
+            payment_method_id: row.payment_method_id,
+            start_date:        row.start_date,
+            status:            row.status,
+            category_id:       row.category_id,
+            renewal_type:      row.renewal_type,
+            notes:             row.notes,
+            website:           row.website,
+            created_at:        row.created_at,
+            updated_at:        row.updated_at,
+            category:          row.category     || null,
+            paymentMethod:     row.paymentMethod || null,
+        };
+    }
+
     close() {
-        if (this.monthlyCategorySummaryService) {
-            this.monthlyCategorySummaryService.close();
-        }
-        if (this.notificationService) {
-            this.notificationService.close();
-        }
+        if (this.monthlyCategorySummaryService) this.monthlyCategorySummaryService.close();
+        if (this.notificationService)           this.notificationService.close();
     }
 }
 

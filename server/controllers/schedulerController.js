@@ -8,9 +8,9 @@ class SchedulerController {
     /**
      * 获取调度器设置
      */
-    getSettings = (req, res) => {
+    getSettings = async (req, res) => {
         try {
-            const settings = this.notificationScheduler.getSchedulerSettings();
+            const settings = await this.notificationScheduler.getSchedulerSettings();
             responseHelper.success(res, settings);
         } catch (error) {
             console.error('Error getting scheduler settings:', error);
@@ -21,7 +21,7 @@ class SchedulerController {
     /**
      * 更新调度器设置
      */
-    updateSettings = (req, res) => {
+    updateSettings = async (req, res) => {
         try {
             const { notification_check_time, timezone, is_enabled } = req.body;
 
@@ -46,7 +46,7 @@ class SchedulerController {
                 is_enabled: is_enabled !== undefined ? is_enabled : true
             };
 
-            const result = this.notificationScheduler.updateSchedulerSettings(settings);
+            const result = await this.notificationScheduler.updateSchedulerSettings(settings);
 
             if (result.success) {
                 responseHelper.success(res, { message: 'Scheduler settings updated successfully', settings });
@@ -62,10 +62,10 @@ class SchedulerController {
     /**
      * 获取调度器状态
      */
-    getStatus = (req, res) => {
+    getStatus = async (req, res) => {
         try {
             const status = this.notificationScheduler.getStatus();
-            const settings = this.notificationScheduler.getSchedulerSettings();
+            const settings = await this.notificationScheduler.getSchedulerSettings();
             
             responseHelper.success(res, {
                 ...status,

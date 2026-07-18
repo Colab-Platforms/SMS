@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
-const Database = require('better-sqlite3');
-const config = require('../config');
+/**
+ * Rotate the admin password — Prisma + NeonDB version.
+ * Usage: node server/scripts/rotate-admin-password.js [--password <newPassword> | --hash <bcryptHash>]
+ */
+
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
+const prisma = require('../lib/prisma');
 const { createAdminUserManager } = require('../config/authCredentials');
 
 function printUsage() {
@@ -14,43 +21,30 @@ function printUsage() {
 
 function parseArgs(argv) {
     const args = { password: undefined, hash: undefined, help: false };
-
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         switch (arg) {
-            case '--password':
-            case '-p':
-                args.password = argv[i + 1];
-                i += 1;
-                break;
-            case '--hash':
-            case '-h':
-                args.hash = argv[i + 1];
-                i += 1;
-                break;
+            case '--password': case '-p':
+                args.password = argv[i + 1]; i += 1; break;
+            case '--hash': case '-h':
+                args.hash = argv[i + 1]; i += 1; break;
             case '--help':
-                args.help = true;
-                break;
+                args.help = true; break;
             default:
                 console.error(`Unknown argument: ${arg}`);
-                args.help = true;
-                break;
+                args.help = true; break;
         }
     }
-
     return args;
 }
 
-function main() {
+async function main() {
     const argv = process.argv.slice(2);
     const args = parseArgs(argv);
 
     if (args.help || ((!args.password || args.password.startsWith('--')) && (!args.hash || args.hash.startsWith('--')))) {
         printUsage();
-        if (args.help) {
-            process.exit(0);
-        }
-        process.exit(1);
+        process.exit(args.help ? 0 : 1);
     }
 
     if (args.password && args.hash) {
@@ -58,14 +52,12 @@ function main() {
         process.exit(1);
     }
 
-    const db = new Database(config.getDatabasePath());
-
     try {
-        const adminManager = createAdminUserManager(db);
-        adminManager.bootstrapDefaultAdmin();
+        const adminManager = createAdminUserManager(prisma);
+        await adminManager.bootstrapDefaultAdmin();
 
-        const newHash = adminManager.setAdminPassword({
-            password: args.password,
+        const newHash = await adminManager.setAdminPassword({
+            password:     args.password,
             passwordHash: args.hash,
         });
 
@@ -79,7 +71,7 @@ function main() {
         console.error('❌ Failed to rotate admin password:', error.message);
         process.exit(1);
     } finally {
-        db.close();
+        await prisma.$disconnect();
     }
 }
 

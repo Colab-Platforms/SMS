@@ -12,7 +12,7 @@ class CategoriesController {
      * 获取所有分类
      */
     getAllCategories = asyncHandler(async (req, res) => {
-        const categories = this.categoriesRepo.findAll({ orderBy: 'label ASC' });
+        const categories = await this.categoriesRepo.findAll({ orderBy: 'label ASC' });
         handleQueryResult(res, categories, 'Categories');
     });
 
@@ -37,11 +37,11 @@ class CategoriesController {
         }
 
         // 检查是否已存在
-        if (this.categoriesRepo.exists({ value })) {
+        if (await this.categoriesRepo.exists({ value })) {
             return validationError(res, 'Category with this value already exists');
         }
 
-        const result = this.categoriesRepo.create({ value, label });
+        const result = await this.categoriesRepo.create({ value, label });
         handleDbResult(res, result, 'create', 'Category');
     });
 
@@ -63,7 +63,7 @@ class CategoriesController {
             return validationError(res, validator.getErrors());
         }
 
-        const result = this.categoriesRepo.updateWhere({ value }, { label });
+        const result = await this.categoriesRepo.updateWhere({ value }, { label });
         handleDbResult(res, result, 'update', 'Category');
     });
 
@@ -72,7 +72,7 @@ class CategoriesController {
      */
     deleteCategory = asyncHandler(async (req, res) => {
         const { value } = req.params;
-        const result = this.categoriesRepo.deleteWhere({ value });
+        const result = await this.categoriesRepo.deleteWhere({ value });
         handleDbResult(res, result, 'delete', 'Category');
     });
 }

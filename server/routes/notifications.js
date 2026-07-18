@@ -4,7 +4,7 @@ const auth = require('../middleware/auth');
 
 function createNotificationRoutes(db) {
     const router = express.Router();
-    const notificationController = new NotificationController();
+    const notificationController = new NotificationController(db);
 
     // Public routes
     router.get('/history', notificationController.getNotificationHistory);
@@ -15,7 +15,7 @@ function createNotificationRoutes(db) {
 
 function createProtectedNotificationRoutes(db) {
     const router = express.Router();
-    const notificationController = new NotificationController();
+    const notificationController = new NotificationController(db);
 
     // 通知设置路由
     router.get('/settings', notificationController.getAllSettings);

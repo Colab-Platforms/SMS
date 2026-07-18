@@ -169,15 +169,17 @@ function handleDbResult(res, result, operation, resource = 'Resource') {
     }
     
     switch (operation) {
-        case 'create':
-            return created(res, { id: result.lastInsertRowid }, `${resource} created successfully`);
+        case 'create': {
+            const id = result.id !== undefined ? result.id : result.lastInsertRowid;
+            return created(res, { id }, `${resource} created successfully`);
+        }
         case 'update':
-            if (result.changes === 0) {
+            if (result.changes !== undefined && result.changes === 0) {
                 return notFound(res, resource);
             }
             return updated(res, null, `${resource} updated successfully`);
         case 'delete':
-            if (result.changes === 0) {
+            if (result.changes !== undefined && result.changes === 0) {
                 return notFound(res, resource);
             }
             return deleted(res, `${resource} deleted successfully`);

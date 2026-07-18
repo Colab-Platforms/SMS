@@ -1,17 +1,17 @@
 const cron = require('node-cron');
 const NotificationService = require('./notificationService');
-const { createDatabaseConnection } = require('../config/database');
+const prisma = require('../lib/prisma');
 
 class NotificationScheduler {
     constructor() {
-        this.db = createDatabaseConnection();
-        this.notificationService = new NotificationService(this.db);
-        this.job = null;
-        this.currentSchedule = null;
+        this.prisma              = prisma;
+        this.notificationService = new NotificationService(this.prisma);
+        this.job                 = null;
+        this.currentSchedule     = null;
     }
 
     /**
-     * 启动通知调度器
+     * Start the notification scheduler.
      */
     start() {
         this.updateSchedule();
@@ -19,54 +19,49 @@ class NotificationScheduler {
     }
 
     /**
-     * 更新调度器设置
+     * Reload scheduler from DB settings.
      */
-    updateSchedule() {
+    async updateSchedule() {
         try {
-            // 获取当前的调度器设置
-            const settings = this.getSchedulerSettings();
+            const settings = await this.getSchedulerSettings();
 
-            // 如果已有任务在运行且设置相同，则不需要更新
-            if (this.currentSchedule &&
-                this.currentSchedule.time === settings.notification_check_time &&
+            if (
+                this.currentSchedule &&
+                this.currentSchedule.time     === settings.notification_check_time &&
                 this.currentSchedule.timezone === settings.timezone &&
-                this.currentSchedule.enabled === settings.is_enabled) {
+                this.currentSchedule.enabled  === settings.is_enabled
+            ) {
                 return;
             }
 
-            // 停止现有任务
             if (this.job) {
                 this.job.stop();
                 this.job = null;
             }
 
-            // 如果调度器被禁用，则不启动新任务
             if (!settings.is_enabled) {
                 console.log('⏸️ Notification scheduler is disabled');
                 this.currentSchedule = null;
                 return;
             }
 
-            // 解析时间设置 (HH:MM 格式)
-            const [hour, minute] = settings.notification_check_time.split(':');
-            const cronExpression = `${minute} ${hour} * * *`;
+            const [hour, minute]   = settings.notification_check_time.split(':');
+            const cronExpression   = `${minute} ${hour} * * *`;
 
-            // 创建新的定时任务
-            this.job = cron.schedule(cronExpression, async () => {
-                console.log(`🔔 Starting notification check at ${settings.notification_check_time}...`);
-                await this.checkAndSendNotifications();
-            }, {
-                scheduled: false,
-                timezone: settings.timezone
-            });
+            this.job = cron.schedule(
+                cronExpression,
+                async () => {
+                    console.log(`🔔 Starting notification check at ${settings.notification_check_time}...`);
+                    await this.checkAndSendNotifications();
+                },
+                { scheduled: false, timezone: settings.timezone }
+            );
 
             this.job.start();
-
-            // 记录当前设置
             this.currentSchedule = {
-                time: settings.notification_check_time,
+                time:     settings.notification_check_time,
                 timezone: settings.timezone,
-                enabled: settings.is_enabled
+                enabled:  settings.is_enabled,
             };
 
             console.log(`✅ Notification scheduler updated: ${settings.notification_check_time} (${settings.timezone})`);
@@ -76,41 +71,21 @@ class NotificationScheduler {
     }
 
     /**
-     * 获取调度器设置
+     * Fetch scheduler settings from DB, with defaults.
      */
-    getSchedulerSettings() {
+    async getSchedulerSettings() {
         try {
-            const query = `
-                SELECT notification_check_time, timezone, is_enabled
-                FROM scheduler_settings
-                WHERE id = 1
-            `;
-            const result = this.db.prepare(query).get();
-
-            // 如果没有设置，返回默认值
+            const result = await this.prisma.schedulerSettings.findUnique({ where: { id: 1 } });
             if (!result) {
-                return {
-                    notification_check_time: '09:00',
-                    timezone: 'Asia/Shanghai',
-                    is_enabled: true
-                };
+                return { notification_check_time: '09:00', timezone: 'Asia/Shanghai', is_enabled: true };
             }
-
             return result;
         } catch (error) {
             console.error('Error getting scheduler settings:', error);
-            // 返回默认设置
-            return {
-                notification_check_time: '09:00',
-                timezone: 'Asia/Shanghai',
-                is_enabled: true
-            };
+            return { notification_check_time: '09:00', timezone: 'Asia/Shanghai', is_enabled: true };
         }
     }
 
-    /**
-     * 停止通知调度器
-     */
     stop() {
         if (this.job) {
             this.job.stop();
@@ -119,25 +94,18 @@ class NotificationScheduler {
         }
     }
 
-    /**
-     * 检查并发送通知
-     */
     async checkAndSendNotifications() {
         try {
             console.log('🔍 Checking for notifications to send...');
 
-            // 检查续订提醒
-            const renewalNotifications = await this.getRenewalNotifications();
+            const renewalNotifications    = await this.getRenewalNotifications();
             console.log(`📅 Found ${renewalNotifications.length} renewal reminders`);
-            
             for (const notification of renewalNotifications) {
                 await this.sendNotification(notification);
             }
 
-            // 检查过期警告
             const expirationNotifications = await this.getExpirationNotifications();
             console.log(`⚠️ Found ${expirationNotifications.length} expiration warnings`);
-            
             for (const notification of expirationNotifications) {
                 await this.sendNotification(notification);
             }
@@ -149,33 +117,36 @@ class NotificationScheduler {
     }
 
     /**
-     * 获取需要发送续订提醒的订阅
+     * Get subscriptions due for renewal reminder within the advance_days window.
+     * Uses PostgreSQL date arithmetic instead of SQLite date('now', '+N days').
      */
     async getRenewalNotifications() {
         try {
-            // Find subscriptions that will expire within the advance_days period (1 to advance_days from now)
-            let query = `
-                SELECT s.*, ns.advance_days, ns.notification_channels, ns.repeat_notification, 'renewal_reminder' as notification_type
+            return await this.prisma.$queryRaw`
+                SELECT s.*,
+                       ns.advance_days,
+                       ns.notification_channels,
+                       ns.repeat_notification,
+                       'renewal_reminder' AS notification_type
                 FROM subscriptions s
                 CROSS JOIN notification_settings ns
                 WHERE ns.notification_type = 'renewal_reminder'
-                    AND ns.is_enabled = 1
+                    AND ns.is_enabled = true
                     AND s.status = 'active'
-                    AND s.next_billing_date BETWEEN date('now', '+1 day') AND date('now', '+' || ns.advance_days || ' days')
+                    AND s.next_billing_date BETWEEN
+                        (CURRENT_DATE + INTERVAL '1 day') AND
+                        (CURRENT_DATE + (ns.advance_days || ' days')::INTERVAL)
+                    AND (
+                        ns.repeat_notification = true
+                        OR NOT EXISTS (
+                            SELECT 1 FROM notification_history nh
+                            WHERE nh.subscription_id = s.id
+                              AND nh.notification_type = 'renewal_reminder'
+                              AND nh.status = 'sent'
+                              AND nh.created_at >= (CURRENT_TIMESTAMP - (ns.advance_days || ' days')::INTERVAL)
+                        )
+                    )
             `;
-
-            // If repeat_notification is disabled, add check to prevent duplicate notifications
-            query += `
-                AND (ns.repeat_notification = 1 OR NOT EXISTS (
-                    SELECT 1 FROM notification_history nh
-                    WHERE nh.subscription_id = s.id
-                    AND nh.notification_type = 'renewal_reminder'
-                    AND nh.status = 'sent'
-                    AND date(nh.created_at) >= date('now', '-' || ns.advance_days || ' days')
-                ))
-            `;
-
-            return this.db.prepare(query).all();
         } catch (error) {
             console.error('Error getting renewal notifications:', error);
             return [];
@@ -183,45 +154,41 @@ class NotificationScheduler {
     }
 
     /**
-     * 获取需要发送过期警告的订阅
+     * Get subscriptions that expired yesterday (send once on first day after expiry).
+     * Uses PostgreSQL CURRENT_DATE arithmetic instead of SQLite date('now', ...).
      */
     async getExpirationNotifications() {
         try {
-            // Find subscriptions that expired exactly yesterday (next_billing_date = yesterday)
-            // This ensures we only send expiration warning once, on the first day after expiration
-            const query = `
-                SELECT s.*, ns.notification_channels, 'expiration_warning' as notification_type
+            return await this.prisma.$queryRaw`
+                SELECT s.*,
+                       ns.notification_channels,
+                       'expiration_warning' AS notification_type
                 FROM subscriptions s
                 CROSS JOIN notification_settings ns
                 WHERE ns.notification_type = 'expiration_warning'
-                    AND ns.is_enabled = 1
+                    AND ns.is_enabled = true
                     AND s.status = 'active'
-                    AND s.next_billing_date = date('now', '-1 day')
+                    AND s.next_billing_date = (CURRENT_DATE - INTERVAL '1 day')
                     AND NOT EXISTS (
                         SELECT 1 FROM notification_history nh
                         WHERE nh.subscription_id = s.id
-                        AND nh.notification_type = 'expiration_warning'
-                        AND nh.status = 'sent'
-                        AND date(nh.created_at) = date('now')
+                          AND nh.notification_type = 'expiration_warning'
+                          AND nh.status = 'sent'
+                          AND nh.created_at >= CURRENT_DATE::timestamp
                     )
             `;
-
-            return this.db.prepare(query).all();
         } catch (error) {
             console.error('Error getting expiration notifications:', error);
             return [];
         }
     }
 
-    /**
-     * 发送通知
-     */
     async sendNotification(subscription) {
         try {
             const result = await this.notificationService.sendNotification({
-                subscriptionId: subscription.id,
+                subscriptionId:   subscription.id,
                 notificationType: subscription.notification_type,
-                channels: JSON.parse(subscription.notification_channels || '["telegram"]')
+                channels:         JSON.parse(subscription.notification_channels || '["telegram"]'),
             });
 
             if (result.success) {
@@ -234,47 +201,32 @@ class NotificationScheduler {
         }
     }
 
-    /**
-     * 手动触发通知检查
-     */
     async triggerCheck() {
         console.log('🔔 Manually triggering notification check...');
         await this.checkAndSendNotifications();
     }
 
     /**
-     * 更新调度器设置
+     * Update scheduler settings in DB.
      */
-    updateSchedulerSettings(settings) {
+    async updateSchedulerSettings(settings) {
         try {
-            const query = `
-                UPDATE scheduler_settings
-                SET notification_check_time = ?, timezone = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = 1
-            `;
+            await this.prisma.schedulerSettings.upsert({
+                where:  { id: 1 },
+                update: {
+                    notification_check_time: settings.notification_check_time,
+                    timezone:                settings.timezone,
+                    is_enabled:              Boolean(settings.is_enabled),
+                },
+                create: {
+                    id:                      1,
+                    notification_check_time: settings.notification_check_time,
+                    timezone:                settings.timezone,
+                    is_enabled:              Boolean(settings.is_enabled),
+                },
+            });
 
-            const result = this.db.prepare(query).run(
-                settings.notification_check_time,
-                settings.timezone,
-                settings.is_enabled ? 1 : 0
-            );
-
-            if (result.changes === 0) {
-                // 如果没有更新任何行，说明记录不存在，需要插入
-                const insertQuery = `
-                    INSERT INTO scheduler_settings (id, notification_check_time, timezone, is_enabled)
-                    VALUES (1, ?, ?, ?)
-                `;
-                this.db.prepare(insertQuery).run(
-                    settings.notification_check_time,
-                    settings.timezone,
-                    settings.is_enabled ? 1 : 0
-                );
-            }
-
-            // 更新调度器
-            this.updateSchedule();
-
+            await this.updateSchedule();
             return { success: true };
         } catch (error) {
             console.error('Error updating scheduler settings:', error);
@@ -282,26 +234,16 @@ class NotificationScheduler {
         }
     }
 
-    /**
-     * 获取调度器状态
-     */
     getStatus() {
         return {
             running: this.job !== null,
-            nextRun: this.job ? this.job.running : false
+            nextRun: this.job ? this.job.running : false,
         };
     }
 
-    /**
-     * 关闭数据库连接
-     */
+    // Kept for API compatibility — Prisma manages connection lifecycle
     close() {
-        if (this.db) {
-            this.db.close();
-        }
-        if (this.notificationService) {
-            this.notificationService.close();
-        }
+        if (this.notificationService) this.notificationService.close();
     }
 }
 

@@ -1,60 +1,55 @@
-const { createDatabaseConnection } = require('../config/database');
+const prisma = require('../lib/prisma');
 const { getBaseCurrency } = require('../config/currencies');
 
 /**
  * User Preference Service
- * Manages user language preferences and other settings
+ * Manages user language preferences and other settings via Prisma.
  */
 class UserPreferenceService {
-    constructor(db = null) {
-        this.db = db || createDatabaseConnection();
+    constructor(prismaClient = null) {
+        // Accept injected prisma or fall back to singleton
+        this.prisma = prismaClient || prisma;
     }
 
     /**
-     * Get user language preference (single user system)
-     * @returns {string} Language code (e.g., 'zh-CN', 'en')
+     * Get user language preference.
      */
-    getUserLanguage() {
+    async getUserLanguage() {
         try {
-            const query = `SELECT language FROM settings WHERE id = 1`;
-            const result = this.db.prepare(query).get();
-            return result ? result.language : 'zh-CN'; // Default fallback
+            const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
+            if (!settings) return 'zh_CN';
+            return settings.language;
         } catch (error) {
             console.error('Error getting user language:', error);
-            return 'zh-CN'; // Default fallback
+            return 'zh_CN';
         }
     }
 
     /**
-     * Set user language preference (single user system)
-     * @param {string} language - Language code
-     * @returns {boolean} Success status
+     * Set user language preference.
      */
-    setUserLanguage(language) {
+    async setUserLanguage(language) {
         try {
-            // Validate language code
-            const supportedLanguages = ['zh-CN', 'en', 'ja', 'ko', 'fr', 'de', 'es'];
-            if (!supportedLanguages.includes(language)) {
+            const supportedLanguages = ['zh_CN', 'en', 'ja', 'ko', 'fr', 'de', 'es'];
+            // Also accept dash-separated form from frontend
+            const normalised = language.replace('-', '_');
+            if (!supportedLanguages.includes(normalised)) {
                 throw new Error(`Unsupported language: ${language}`);
             }
 
-            const query = `
-                UPDATE settings
-                SET language = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = 1
-            `;
-            const result = this.db.prepare(query).run(language);
+            await this.prisma.settings.upsert({
+                where:  { id: 1 },
+                update: { language: normalised },
+                create: {
+                    id:                    1,
+                    language:              normalised,
+                    currency:              getBaseCurrency(),
+                    theme:                 'system',
+                    show_original_currency: true,
+                },
+            });
 
-            if (result.changes === 0) {
-                // If no rows affected, insert new record
-                const insertQuery = `
-                    INSERT OR REPLACE INTO settings (id, language, currency, theme, show_original_currency)
-                    VALUES (1, ?, ?, 'system', 1)
-                `;
-                this.db.prepare(insertQuery).run(language, getBaseCurrency());
-            }
-
-            console.log(`User language preference updated to: ${language}`);
+            console.log(`User language preference updated to: ${normalised}`);
             return true;
         } catch (error) {
             console.error('Error setting user language:', error);
@@ -63,87 +58,69 @@ class UserPreferenceService {
     }
 
     /**
-     * Get all user preferences
-     * @param {number} userId - User ID (default: 1 for single user system)
-     * @returns {Object} User preferences object
+     * Get all user preferences (settings row).
      */
-    getUserPreferences(userId = 1) {
+    async getUserPreferences(userId = 1) {
         try {
-            const query = `SELECT * FROM settings WHERE id = ?`;
-            const result = this.db.prepare(query).get(userId);
-            
+            const result = await this.prisma.settings.findUnique({ where: { id: userId } });
             if (!result) {
-                // Return default preferences if not found
                 return {
-                    id: userId,
-                    currency: getBaseCurrency(),
-                    theme: 'system',
+                    id:                    userId,
+                    currency:              getBaseCurrency(),
+                    theme:                 'system',
                     show_original_currency: true,
-                    language: 'zh-CN'
+                    language:              'zh_CN',
                 };
             }
-
             return result;
         } catch (error) {
             console.error('Error getting user preferences:', error);
             return {
-                id: userId,
-                currency: getBaseCurrency(),
-                theme: 'system',
+                id:                    userId,
+                currency:              getBaseCurrency(),
+                theme:                 'system',
                 show_original_currency: true,
-                language: 'zh-CN'
+                language:              'zh_CN',
             };
         }
     }
 
     /**
-     * Update user preferences
-     * @param {Object} preferences - Preferences object
-     * @param {number} userId - User ID (default: 1 for single user system)
-     * @returns {boolean} Success status
+     * Update user preferences.
      */
-    updateUserPreferences(preferences, userId = 1) {
+    async updateUserPreferences(preferences, userId = 1) {
         try {
             const allowedFields = ['currency', 'theme', 'show_original_currency', 'language'];
-            const updateFields = [];
-            const values = [];
+            const updateData    = {};
 
-            // Build dynamic update query
             for (const [key, value] of Object.entries(preferences)) {
                 if (allowedFields.includes(key)) {
-                    updateFields.push(`${key} = ?`);
-                    values.push(value);
+                    // Normalise language code
+                    if (key === 'language') {
+                        updateData[key] = String(value).replace('-', '_');
+                    } else if (key === 'show_original_currency') {
+                        updateData[key] = Boolean(value);
+                    } else {
+                        updateData[key] = value;
+                    }
                 }
             }
 
-            if (updateFields.length === 0) {
+            if (Object.keys(updateData).length === 0) {
                 throw new Error('No valid fields to update');
             }
 
-            values.push(userId); // Add userId for WHERE clause
-
-            const query = `
-                UPDATE settings 
-                SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
-            `;
-
-            const result = this.db.prepare(query).run(...values);
-            
-            if (result.changes === 0) {
-                // If no rows affected, insert new record with defaults
-                const insertQuery = `
-                    INSERT OR REPLACE INTO settings (id, currency, theme, show_original_currency, language) 
-                    VALUES (?, ?, ?, ?, ?)
-                `;
-                this.db.prepare(insertQuery).run(
-                    userId,
-                    preferences.currency || getBaseCurrency(),
-                    preferences.theme || 'system',
-                    preferences.show_original_currency !== undefined ? preferences.show_original_currency : 1,
-                    preferences.language || 'zh-CN'
-                );
-            }
+            await this.prisma.settings.upsert({
+                where:  { id: userId },
+                update: updateData,
+                create: {
+                    id:                    userId,
+                    currency:              preferences.currency              || getBaseCurrency(),
+                    theme:                 preferences.theme                 || 'system',
+                    show_original_currency: preferences.show_original_currency !== undefined ? Boolean(preferences.show_original_currency) : true,
+                    language:              (preferences.language || 'zh_CN').replace('-', '_'),
+                },
+            });
 
             console.log('User preferences updated successfully');
             return true;
@@ -153,41 +130,29 @@ class UserPreferenceService {
         }
     }
 
-    /**
-     * Get supported languages
-     * @returns {Array} Array of supported language objects
-     */
     getSupportedLanguages() {
         return [
-            { code: 'zh-CN', name: '简体中文', nativeName: '简体中文' },
-            { code: 'en', name: 'English', nativeName: 'English' },
-            { code: 'ja', name: 'Japanese', nativeName: '日本語' },
-            { code: 'ko', name: 'Korean', nativeName: '한국어' },
-            { code: 'fr', name: 'French', nativeName: 'Français' },
-            { code: 'de', name: 'German', nativeName: 'Deutsch' },
-            { code: 'es', name: 'Spanish', nativeName: 'Español' }
+            { code: 'zh_CN', name: 'Chinese (Simplified)', nativeName: '简体中文' },
+            { code: 'en',    name: 'English',              nativeName: 'English' },
+            { code: 'ja',    name: 'Japanese',             nativeName: '日本語' },
+            { code: 'ko',    name: 'Korean',               nativeName: '한국어' },
+            { code: 'fr',    name: 'French',               nativeName: 'Français' },
+            { code: 'de',    name: 'German',               nativeName: 'Deutsch' },
+            { code: 'es',    name: 'Spanish',              nativeName: 'Español' },
         ];
     }
 
-    /**
-     * Get language name by code
-     * @param {string} langCode - Language code
-     * @returns {string} Language name
-     */
     getLanguageName(langCode) {
+        const norm      = langCode.replace('-', '_');
         const languages = this.getSupportedLanguages();
-        const language = languages.find(lang => lang.code === langCode);
+        const language  = languages.find((l) => l.code === norm);
         return language ? language.name : langCode;
     }
 
-    /**
-     * Validate language code
-     * @param {string} langCode - Language code to validate
-     * @returns {boolean} Validation result
-     */
     validateLanguageCode(langCode) {
-        const supportedCodes = this.getSupportedLanguages().map(lang => lang.code);
-        return supportedCodes.includes(langCode);
+        const norm          = langCode.replace('-', '_');
+        const supportedCodes = this.getSupportedLanguages().map((l) => l.code);
+        return supportedCodes.includes(norm);
     }
 }
 

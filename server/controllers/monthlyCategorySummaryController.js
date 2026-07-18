@@ -11,7 +11,7 @@ const { getBaseCurrency } = require('../config/currencies');
 class MonthlyCategorySummaryController {
     constructor(db) {
         this.db = db;
-        this.monthlyCategorySummaryService = new MonthlyCategorySummaryService(db.name);
+        this.monthlyCategorySummaryService = new MonthlyCategorySummaryService(db);
     }
 
     /**
@@ -61,7 +61,7 @@ class MonthlyCategorySummaryController {
             return validationError(res, 'start_year cannot be greater than end_year');
         }
 
-        const summaries = this.monthlyCategorySummaryService.getMonthlyCategorySummary(
+        const summaries = await this.monthlyCategorySummaryService.getMonthlyCategorySummary(
             startYear,
             parseInt(start_month),
             endYear,
@@ -108,7 +108,7 @@ class MonthlyCategorySummaryController {
             return validationError(res, validator.getErrors());
         }
 
-        const summaries = this.monthlyCategorySummaryService.getMonthCategorySummary(
+        const summaries = await this.monthlyCategorySummaryService.getMonthCategorySummary(
             parseInt(year),
             parseInt(month)
         );
@@ -118,8 +118,8 @@ class MonthlyCategorySummaryController {
             month: parseInt(month),
             categories: summaries.map(summary => ({
                 categoryId: summary.category_id,
-                categoryValue: summary.category_value,
-                categoryLabel: summary.category_label,
+                categoryValue: summary.category?.value,
+                categoryLabel: summary.category?.label,
                 totalAmount: parseFloat(summary.total_amount_in_base_currency),
                 baseCurrency: summary.base_currency,
                 transactionsCount: summary.transactions_count,
@@ -175,7 +175,7 @@ class MonthlyCategorySummaryController {
         const startYear = parseInt(start_year) || currentYear;
         const endYear = parseInt(end_year) || currentYear;
 
-        const total = this.monthlyCategorySummaryService.getTotalSummary(
+        const total = await this.monthlyCategorySummaryService.getTotalSummary(
             startYear,
             parseInt(start_month),
             endYear,
@@ -202,7 +202,7 @@ class MonthlyCategorySummaryController {
      * POST /api/monthly-category-summary/recalculate
      */
     recalculateAllSummaries = asyncHandler(async (req, res) => {
-        this.monthlyCategorySummaryService.recalculateAllMonthlyCategorySummaries();
+        await this.monthlyCategorySummaryService.recalculateAllMonthlyCategorySummaries();
 
         const result = {
             message: 'All monthly category summaries recalculated successfully',
@@ -229,7 +229,7 @@ class MonthlyCategorySummaryController {
             return validationError(res, validator.getErrors());
         }
 
-        this.monthlyCategorySummaryService.processNewPayment(parseInt(paymentId));
+        await this.monthlyCategorySummaryService.processNewPayment(parseInt(paymentId));
 
         const result = {
             message: `Payment ${paymentId} processed successfully`,
@@ -250,8 +250,8 @@ class MonthlyCategorySummaryController {
             month: summary.month,
             monthKey: `${summary.year}-${summary.month.toString().padStart(2, '0')}`,
             categoryId: summary.category_id,
-            categoryValue: summary.category_value,
-            categoryLabel: summary.category_label,
+            categoryValue: summary.category?.value,
+            categoryLabel: summary.category?.label,
             totalAmount: parseFloat(summary.total_amount_in_base_currency),
             baseCurrency: summary.base_currency,
             transactionsCount: summary.transactions_count,

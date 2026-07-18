@@ -2,36 +2,28 @@ const request = require('supertest');
 const express = require('express');
 const NotificationController = require('../controllers/notificationController');
 const responseHelper = require('../utils/responseHelper');
-
-// Mock the notification service
-jest.mock('../services/notificationService');
+const { createValidator } = require('../utils/validator');
 
 describe('NotificationController - Boolean Normalization (Issue #27)', () => {
     let app;
     let controller;
-    let mockDb;
+    let mockPrisma;
 
     beforeEach(() => {
         // Setup Express app
         app = express();
         app.use(express.json());
 
-        // Create controller instance
-        controller = new NotificationController();
-
-        // Mock database
-        mockDb = {
-            prepare: jest.fn().mockReturnValue({
-                get: jest.fn(),
-                run: jest.fn().mockReturnValue({ changes: 1 }),
-                all: jest.fn()
-            })
+        // Mock Prisma Client
+        mockPrisma = {
+            notificationSetting: {
+                findUnique: jest.fn(),
+                update: jest.fn().mockResolvedValue({ id: 1 })
+            }
         };
 
-        // Mock the notification service's db property
-        controller.notificationService = {
-            db: mockDb
-        };
+        // Create controller instance passing mockPrisma
+        controller = new NotificationController(mockPrisma);
 
         // Setup route
         app.put('/api/notifications/settings/:id', controller.updateSetting);
@@ -44,7 +36,8 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
     describe('Boolean normalization for SQLite integer values', () => {
         test('should accept SQLite integer boolean values (1/0)', async () => {
             // Mock getting current setting
-            mockDb.prepare().get.mockReturnValue({
+            mockPrisma.notificationSetting.findUnique.mockResolvedValue({
+                id: 1,
                 notification_type: 'renewal_reminder'
             });
 
@@ -61,18 +54,21 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 .expect(200);
 
             expect(response.body.success).toBe(true);
-            expect(mockDb.prepare().run).toHaveBeenCalledWith(
-                1,                               // normalized boolean to integer
-                7,
-                '["telegram"]',
-                0,                               // normalized boolean to integer
-                1
-            );
+            expect(mockPrisma.notificationSetting.update).toHaveBeenCalledWith({
+                where: { id: 1 },
+                data: {
+                    is_enabled: true,            // normalized to standard boolean
+                    advance_days: 7,
+                    notification_channels: '["telegram"]',
+                    repeat_notification: false,  // normalized to standard boolean
+                }
+            });
         });
 
         test('should accept mixed boolean and integer values', async () => {
             // Mock getting current setting
-            mockDb.prepare().get.mockReturnValue({
+            mockPrisma.notificationSetting.findUnique.mockResolvedValue({
+                id: 2,
                 notification_type: 'renewal_reminder'
             });
 
@@ -89,18 +85,21 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 .expect(200);
 
             expect(response.body.success).toBe(true);
-            expect(mockDb.prepare().run).toHaveBeenCalledWith(
-                1,                               // true normalized to 1
-                3,
-                '["telegram","email"]',
-                0,                               // 0 normalized to 0
-                2
-            );
+            expect(mockPrisma.notificationSetting.update).toHaveBeenCalledWith({
+                where: { id: 2 },
+                data: {
+                    is_enabled: true,            // true remains true
+                    advance_days: 3,
+                    notification_channels: '["telegram","email"]',
+                    repeat_notification: false,  // 0 normalized to false
+                }
+            });
         });
 
         test('should accept string boolean values', async () => {
             // Mock getting current setting
-            mockDb.prepare().get.mockReturnValue({
+            mockPrisma.notificationSetting.findUnique.mockResolvedValue({
+                id: 3,
                 notification_type: 'renewal_reminder'
             });
 
@@ -117,13 +116,15 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 .expect(200);
 
             expect(response.body.success).toBe(true);
-            expect(mockDb.prepare().run).toHaveBeenCalledWith(
-                1,                               // '1' normalized to 1
-                5,
-                '["telegram"]',
-                0,                               // 'false' normalized to 0
-                3
-            );
+            expect(mockPrisma.notificationSetting.update).toHaveBeenCalledWith({
+                where: { id: 3 },
+                data: {
+                    is_enabled: true,            // '1' normalized to true
+                    advance_days: 5,
+                    notification_channels: '["telegram"]',
+                    repeat_notification: false,  // 'false' normalized to false
+                }
+            });
         });
 
         test('should reject invalid boolean values', async () => {
@@ -152,7 +153,8 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
 
         test('should handle the exact scenario from issue #27', async () => {
             // Mock getting current setting
-            mockDb.prepare().get.mockReturnValue({
+            mockPrisma.notificationSetting.findUnique.mockResolvedValue({
+                id: 2,
                 notification_type: 'expiration_warning'
             });
 
@@ -173,21 +175,22 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
             expect(response.body.data).toEqual({ message: 'Notification setting updated successfully' });
 
             // Verify the database was called with the correct normalized values
-            expect(mockDb.prepare().run).toHaveBeenCalledWith(
-                1,                               // 1 (SQLite true) normalized to 1
-                0,                               // For expiration_warning, advance_days is always 0
-                '["telegram"]',
-                0,                               // 0 (SQLite false) normalized to 0
-                2
-            );
+            expect(mockPrisma.notificationSetting.update).toHaveBeenCalledWith({
+                where: { id: 2 },
+                data: {
+                    is_enabled: true,            // 1 (SQLite true) normalized to true
+                    advance_days: 0,             // For expiration_warning, advance_days is always 0
+                    notification_channels: '["telegram"]',
+                    repeat_notification: false,  // 0 (SQLite false) normalized to false
+                }
+            });
         });
     });
 
     describe('Boolean normalization helper function', () => {
         test('normalizeBoolean function should work correctly', () => {
-            // Since the function is defined inside the controller, we'll test its behavior
-            // through the actual API calls above. This test documents the expected behavior.
-
+            // The normalization logic is tested through the integration tests above
+            // We just document expected behavior.
             const testCases = [
                 { input: true, expected: true },
                 { input: false, expected: false },
@@ -196,11 +199,8 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 { input: '1', expected: true },
                 { input: '0', expected: false },
                 { input: 'true', expected: true },
-                { input: 'false', expected: false },
-                { input: 'invalid', expected: 'invalid' }  // Should pass through unchanged
+                { input: 'false', expected: false }
             ];
-
-            // The normalization logic is tested through the integration tests above
             expect(testCases.length).toBeGreaterThan(0);
         });
     });

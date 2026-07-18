@@ -24,7 +24,7 @@ class PaymentHistoryController {
         } = req.query;
 
         const filters = {};
-        if (subscription_id) filters.subscription_id = subscription_id;
+        if (subscription_id) filters.subscription_id = parseInt(subscription_id, 10);
         if (start_date) filters.start_date = start_date;
         if (end_date) filters.end_date = end_date;
         if (status) filters.status = status;
@@ -44,7 +44,7 @@ class PaymentHistoryController {
      */
     getPaymentById = asyncHandler(async (req, res) => {
         const { id } = req.params;
-        const payment = await this.paymentHistoryService.getPaymentById(id);
+        const payment = await this.paymentHistoryService.getPaymentById(parseInt(id, 10));
         handleQueryResult(res, payment, 'Payment record');
     });
 
@@ -149,7 +149,7 @@ class PaymentHistoryController {
             return validationError(res, validator.getErrors());
         }
 
-        const result = await this.paymentHistoryService.updatePayment(id, transformedData);
+        const result = await this.paymentHistoryService.updatePayment(parseInt(id, 10), transformedData);
         handleDbResult(res, result, 'update', 'Payment record');
     });
 
@@ -158,7 +158,7 @@ class PaymentHistoryController {
      */
     deletePayment = asyncHandler(async (req, res) => {
         const { id } = req.params;
-        const result = await this.paymentHistoryService.deletePayment(id);
+        const result = await this.paymentHistoryService.deletePayment(parseInt(id, 10));
         handleDbResult(res, result, 'delete', 'Payment record');
     });
 

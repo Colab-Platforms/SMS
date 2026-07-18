@@ -12,7 +12,7 @@ class PaymentMethodsController {
      * 获取所有支付方式
      */
     getAllPaymentMethods = asyncHandler(async (req, res) => {
-        const paymentMethods = this.paymentMethodsRepo.findAll({ orderBy: 'label ASC' });
+        const paymentMethods = await this.paymentMethodsRepo.findAll({ orderBy: 'label ASC' });
         handleQueryResult(res, paymentMethods, 'Payment methods');
     });
 
@@ -37,11 +37,11 @@ class PaymentMethodsController {
         }
 
         // 检查是否已存在
-        if (this.paymentMethodsRepo.exists({ value })) {
+        if (await this.paymentMethodsRepo.exists({ value })) {
             return validationError(res, 'Payment method with this value already exists');
         }
 
-        const result = this.paymentMethodsRepo.create({ value, label });
+        const result = await this.paymentMethodsRepo.create({ value, label });
         handleDbResult(res, result, 'create', 'Payment method');
     });
 
@@ -63,7 +63,7 @@ class PaymentMethodsController {
             return validationError(res, validator.getErrors());
         }
 
-        const result = this.paymentMethodsRepo.updateWhere({ value }, { label });
+        const result = await this.paymentMethodsRepo.updateWhere({ value }, { label });
         handleDbResult(res, result, 'update', 'Payment method');
     });
 
@@ -72,7 +72,7 @@ class PaymentMethodsController {
      */
     deletePaymentMethod = asyncHandler(async (req, res) => {
         const { value } = req.params;
-        const result = this.paymentMethodsRepo.deleteWhere({ value });
+        const result = await this.paymentMethodsRepo.deleteWhere({ value });
         handleDbResult(res, result, 'delete', 'Payment method');
     });
 }

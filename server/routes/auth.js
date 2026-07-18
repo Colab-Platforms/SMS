@@ -82,7 +82,7 @@ function createAuthRoutes(db) {
                 return res.status(400).json({ message: 'New password must be different from the current password', code: 'PASSWORD_SAME_AS_OLD' });
             }
 
-            const newHash = adminUserManager.setAdminPassword({ password: newPassword });
+            const newHash = await adminUserManager.setAdminPassword({ password: newPassword });
 
             process.env.ADMIN_PASSWORD_HASH = newHash;
             delete process.env.ADMIN_PASSWORD;

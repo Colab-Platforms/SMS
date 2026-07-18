@@ -10,53 +10,46 @@ function hashAdminPassword(plainPassword) {
 }
 
 function resolveAdminPasswordHashFromEnv() {
-    const configuredHash = process.env.ADMIN_PASSWORD_HASH;
+    const configuredHash     = process.env.ADMIN_PASSWORD_HASH;
     const configuredPassword = process.env.ADMIN_PASSWORD;
 
     if (configuredHash) {
-        return {
-            passwordHash: configuredHash,
-            source: 'hash',
-        };
+        return { passwordHash: configuredHash, source: 'hash' };
     }
-
     if (configuredPassword) {
-        return {
-            passwordHash: hashAdminPassword(configuredPassword),
-            source: 'password',
-        };
+        return { passwordHash: hashAdminPassword(configuredPassword), source: 'password' };
     }
-
-    return {
-        passwordHash: hashAdminPassword('admin'),
-        source: 'default',
-    };
+    return { passwordHash: hashAdminPassword('admin'), source: 'default' };
 }
 
-function createAdminUserManager(db) {
-    if (!db) {
-        throw new Error('Database connection is required to create an admin user manager');
+/**
+ * Create an admin user manager backed by the Prisma client.
+ * All methods are async because UserService now uses Prisma.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ */
+function createAdminUserManager(prisma) {
+    if (!prisma) {
+        throw new Error('Prisma client is required to create an admin user manager');
     }
 
-    const userService = new UserService(db);
+    const userService   = new UserService(prisma);
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
 
-    function getAdminUser() {
+    async function getAdminUser() {
         return userService.getByUsername(adminUsername);
     }
 
-    function ensureAdminUser() {
-        let user = getAdminUser();
-        if (user) {
-            return user;
-        }
+    async function ensureAdminUser() {
+        let user = await getAdminUser();
+        if (user) return user;
 
         const { passwordHash, source } = resolveAdminPasswordHashFromEnv();
 
-        const result = userService.createUser({
-            username: adminUsername,
+        await userService.createUser({
+            username:      adminUsername,
             password_hash: passwordHash,
-            role: 'admin',
+            role:          'admin',
         });
 
         logger.info(`Seeded default admin user \`${adminUsername}\` using ${source === 'default' ? 'fallback' : source} credentials`);
@@ -66,43 +59,36 @@ function createAdminUserManager(db) {
             logger.warn('Consider storing the generated hash and removing ADMIN_PASSWORD for improved security.');
         }
 
-        if (!result || result.changes === 0) {
-            throw new Error('Failed to seed default admin user');
-        }
-
         return getAdminUser();
     }
 
-    function bootstrapDefaultAdmin() {
-        const user = ensureAdminUser();
+    async function bootstrapDefaultAdmin() {
+        const user = await ensureAdminUser();
         if (!user) {
             throw new Error('Unable to bootstrap admin user');
         }
         return user;
     }
 
-    function setAdminPassword({ password, passwordHash }) {
+    async function setAdminPassword({ password, passwordHash }) {
         if (!password && !passwordHash) {
             throw new Error('Either password or passwordHash must be provided');
         }
-
         const newHash = passwordHash || hashAdminPassword(password);
-
-        const existing = ensureAdminUser();
+        const existing = await ensureAdminUser();
         if (!existing) {
             throw new Error('Admin user does not exist');
         }
-
-        userService.updatePasswordHash(adminUsername, newHash);
+        await userService.updatePasswordHash(adminUsername, newHash);
         return newHash;
     }
 
-    function recordSuccessfulLogin() {
-        const existing = ensureAdminUser();
+    async function recordSuccessfulLogin() {
+        const existing = await ensureAdminUser();
         if (!existing) {
             throw new Error('Admin user does not exist');
         }
-        userService.recordLastLogin(adminUsername);
+        await userService.recordLastLogin(adminUsername);
     }
 
     return {
