@@ -188,7 +188,7 @@ class NotificationScheduler {
             const result = await this.notificationService.sendNotification({
                 subscriptionId:   subscription.id,
                 notificationType: subscription.notification_type,
-                channels:         JSON.parse(subscription.notification_channels || '["telegram"]'),
+                channels:         JSON.parse(subscription.notification_channels || '["whatsapp"]'),
             });
 
             if (result.success) {

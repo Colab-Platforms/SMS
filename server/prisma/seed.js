@@ -52,11 +52,11 @@ const DEFAULT_EXCHANGE_RATES = [
  * previously inserted via migration_002, never carried over to the Prisma seed).
  */
 const DEFAULT_NOTIFICATION_SETTINGS = [
-    { notification_type: 'renewal_reminder',    is_enabled: true, advance_days: 7, repeat_notification: true,  notification_channels: '["telegram"]' },
-    { notification_type: 'expiration_warning',  is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["telegram"]' },
-    { notification_type: 'renewal_success',     is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["telegram"]' },
-    { notification_type: 'renewal_failure',     is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["telegram"]' },
-    { notification_type: 'subscription_change', is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["telegram"]' },
+    { notification_type: 'renewal_reminder',    is_enabled: true, advance_days: 7, repeat_notification: true,  notification_channels: '["whatsapp"]' },
+    { notification_type: 'expiration_warning',  is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
+    { notification_type: 'renewal_success',     is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
+    { notification_type: 'renewal_failure',     is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
+    { notification_type: 'subscription_change', is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
 ];
 
 /**

@@ -49,18 +49,17 @@ export interface NotificationStats {
   byChannel: Record<string, number>;
 }
 
-export interface TelegramBotInfo {
-  id: number;
-  first_name: string;
-  username: string;
-  can_join_groups: boolean;
-  can_read_all_group_messages: boolean;
-  supports_inline_queries: boolean;
+export type WhatsappSessionStatusValue = 'connected' | 'disconnected' | 'need_scan' | 'logged_out' | 'expired';
+
+export interface WhatsappSessionStatus {
+  success: boolean;
+  status?: WhatsappSessionStatusValue;
+  error?: string;
 }
 
-export interface TelegramConfigStatus {
+export interface WhatsappConfigStatus {
   configured: boolean;
-  hasToken: boolean;
+  hasApiKey: boolean;
   isPlaceholder: boolean;
 }
 
@@ -134,15 +133,15 @@ export const notificationApi = {
   getStats: () =>
     apiClient.get<NotificationStats>(`/notifications/stats`),
 
-  // 验证Telegram Chat ID
-  validateChatId: (chatId: string) =>
-    apiClient.post(`/protected/notifications/validate-chat-id`, { chat_id: chatId }),
+  // 验证WhatsApp电话号码格式
+  validatePhoneNumber: (phoneNumber: string) =>
+    apiClient.post(`/protected/notifications/validate-phone-number`, { phone_number: phoneNumber }),
 
-  // 获取Telegram Bot信息
-  getBotInfo: () =>
-    apiClient.get<{ success: boolean; botInfo: TelegramBotInfo }>(`/protected/notifications/telegram/bot-info`),
+  // 获取WhatsApp会话连接状态
+  getWhatsappSessionStatus: () =>
+    apiClient.get<WhatsappSessionStatus>(`/protected/notifications/whatsapp/session-status`),
 
-  // 获取Telegram配置状态
-  getTelegramConfigStatus: () =>
-    apiClient.get<TelegramConfigStatus>(`/protected/notifications/telegram/config-status`)
+  // 获取WhatsApp配置状态
+  getWhatsappConfigStatus: () =>
+    apiClient.get<WhatsappConfigStatus>(`/protected/notifications/whatsapp/config-status`)
 };

@@ -6,7 +6,7 @@ import { RefreshCw, BarChart3, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { notificationApi, NotificationSetting } from '@/services/notificationApi';
 import { useToast } from '@/hooks/use-toast';
-import { TelegramConfig } from './TelegramConfig';
+import { WhatsappConfig } from './WhatsappConfig';
 import { EmailConfig } from './EmailConfig';
 import { NotificationRules } from './NotificationRules';
 import { SchedulerSettings } from './SchedulerSettings';
@@ -110,11 +110,10 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ user
 
         <TabsContent value="channels" className="space-y-6">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <TelegramConfig 
-              userId={userId}
+            <WhatsappConfig
               onConfigChange={loadSettings}
             />
-            <EmailConfig 
+            <EmailConfig
               onConfigChange={loadSettings}
             />
           </div>

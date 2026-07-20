@@ -7,10 +7,10 @@ const NOTIFICATION_TEMPLATES = {
   // 续订提醒
   renewal_reminder: {
     'en-US': {
-      telegram: {
-        content: `<b>Renewal Reminder</b>
+      whatsapp: {
+        content: `*Renewal Reminder*
 
-📢 <b>{{name}}</b> is about to expire
+📢 *{{name}}* is about to expire
 
 📅 Expiration date: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -38,10 +38,10 @@ Thank you!`
       }
     },
     'en-US': {
-      telegram: {
-        content: `<b>Renewal Reminder</b>
+      whatsapp: {
+        content: `*Renewal Reminder*
 
-📢 <b>{{name}}</b> is about to expire
+📢 *{{name}}* is about to expire
 
 📅 Expiration date: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -73,10 +73,10 @@ Thank you!`
   // 过期警告
   expiration_warning: {
     'en-US': {
-      telegram: {
-        content: `<b>⚠️ Subscription Expiration Warning</b>
+      whatsapp: {
+        content: `*⚠️ Subscription Expiration Warning*
 
-🚨 <b>{{name}}</b> has expired
+🚨 *{{name}}* has expired
 
 📅 Expiration date: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -104,10 +104,10 @@ Thank you!`
       }
     },
     'en-US': {
-      telegram: {
-        content: `<b>⚠️ Subscription Expiration Warning</b>
+      whatsapp: {
+        content: `*⚠️ Subscription Expiration Warning*
 
-🚨 <b>{{name}}</b> has expired
+🚨 *{{name}}* has expired
 
 📅 Expiration date: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -139,10 +139,10 @@ Thank you!`
   // 续订成功
   renewal_success: {
     'en-US': {
-      telegram: {
-        content: `<b>✅ Renewal Successful</b>
+      whatsapp: {
+        content: `*✅ Renewal Successful*
 
-🎉 <b>{{name}}</b> renewed successfully
+🎉 *{{name}}* renewed successfully
 
 📅 Next renewal: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -170,10 +170,10 @@ Thank you!`
       }
     },
     'en-US': {
-      telegram: {
-        content: `<b>✅ Renewal Successful</b>
+      whatsapp: {
+        content: `*✅ Renewal Successful*
 
-🎉 <b>{{name}}</b> renewed successfully
+🎉 *{{name}}* renewed successfully
 
 📅 Next renewal: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -205,10 +205,10 @@ Thank you!`
   // 续订失败
   renewal_failure: {
     'en-US': {
-      telegram: {
-        content: `<b>❌ Renewal Failed</b>
+      whatsapp: {
+        content: `*❌ Renewal Failed*
 
-⚠️ <b>{{name}}</b> renewal failed
+⚠️ *{{name}}* renewal failed
 
 📅 Expiration date: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -236,10 +236,10 @@ Thank you!`
       }
     },
     'en-US': {
-      telegram: {
-        content: `<b>❌ Renewal Failed</b>
+      whatsapp: {
+        content: `*❌ Renewal Failed*
 
-⚠️ <b>{{name}}</b> renewal failed
+⚠️ *{{name}}* renewal failed
 
 📅 Expiration date: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -271,10 +271,10 @@ Thank you!`
   // 订阅变更
   subscription_change: {
     'en-US': {
-      telegram: {
-        content: `<b>📝 Subscription Change Notification</b>
+      whatsapp: {
+        content: `*📝 Subscription Change Notification*
 
-🔄 <b>{{name}}</b> information updated
+🔄 *{{name}}* information updated
 
 📅 Next renewal: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -302,10 +302,10 @@ Thank you!`
       }
     },
     'en-US': {
-      telegram: {
-        content: `<b>📝 Subscription Change Notification</b>
+      whatsapp: {
+        content: `*📝 Subscription Change Notification*
 
-🔄 <b>{{name}}</b> information updated
+🔄 *{{name}}* information updated
 
 📅 Next renewal: {{next_billing_date}}
 💰 Amount: {{amount}} {{currency}}
@@ -342,7 +342,7 @@ Thank you!`
  * @param {string} channel - 通知渠道
  * @returns {Object|null} 模板对象
  */
-function getTemplate(notificationType, language = 'en-US', channel = 'telegram') {
+function getTemplate(notificationType, language = 'en-US', channel = 'whatsapp') {
   const typeTemplates = NOTIFICATION_TEMPLATES[notificationType];
   if (!typeTemplates) {
     return null;

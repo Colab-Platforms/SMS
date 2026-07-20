@@ -14,12 +14,12 @@ module.exports = {
   ],
 
   // 支持的通知渠道
-  SUPPORTED_CHANNELS: ['telegram', 'email'],
+  SUPPORTED_CHANNELS: ['whatsapp', 'email'],
 
   // 默认通知渠道
   DEFAULT_NOTIFICATION_CHANNELS: JSON.parse(
     process.env.NOTIFICATION_DEFAULT_CHANNELS ||
-    '["telegram"]'
+    '["whatsapp"]'
   ),
 
   // 语言设置
@@ -64,10 +64,10 @@ module.exports = {
 
   // 验证规则
   VALIDATION: {
-    CHAT_ID_MIN_LENGTH: 1,
-    CHAT_ID_MAX_LENGTH: 50,
+    PHONE_NUMBER_MIN_LENGTH: 8,
+    PHONE_NUMBER_MAX_LENGTH: 16, // E.164: '+' plus up to 15 digits
     ADVANCE_DAYS_MIN: 0,
     ADVANCE_DAYS_MAX: 30,
-    MESSAGE_MAX_LENGTH: 4096 // Telegram限制
+    MESSAGE_MAX_LENGTH: 4096 // Conservative default; WhatsApp's real limit is much higher
   }
 };

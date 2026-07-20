@@ -81,7 +81,7 @@ class TemplateController {
      */
     static getTemplate(req, res) {
         try {
-            const { notificationType, language = 'zh-CN', channel = 'telegram' } = req.query;
+            const { notificationType, language = 'zh-CN', channel = 'whatsapp' } = req.query;
             
             if (!notificationType) {
                 return res.status(400).json({
@@ -160,9 +160,9 @@ class TemplateController {
     static previewTemplate(req, res) {
         try {
             const { 
-                notificationType, 
-                language = 'zh-CN', 
-                channel = 'telegram',
+                notificationType,
+                language = 'zh-CN',
+                channel = 'whatsapp',
                 sampleData = {}
             } = req.body;
             

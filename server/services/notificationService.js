@@ -1,4 +1,4 @@
-const TelegramService = require('./telegramService');
+const WasenderService = require('./wasenderService');
 const EmailService = require('./emailService');
 const prisma = require('../lib/prisma');
 const UserPreferenceService = require('./userPreferenceService');
@@ -12,7 +12,7 @@ const {
 class NotificationService {
     constructor(prismaClient = null) {
         this.prisma                = prismaClient || prisma;
-        this.telegramService       = new TelegramService();
+        this.wasenderService       = new WasenderService();
         this.emailService          = new EmailService();
         this.userPreferenceService = new UserPreferenceService(this.prisma);
     }
@@ -60,6 +60,11 @@ class NotificationService {
                 return { success: false, channel, message: 'Channel not configured' };
             }
 
+            const recipients = this.getRecipients(channelConfig, channel);
+            if (recipients.length === 0) {
+                return { success: false, channel, message: 'No recipients configured' };
+            }
+
             const userLanguage = await this.userPreferenceService.getUserLanguage();
             const { content: messageContent, subject } = this.renderMessageTemplate({
                 subscription,
@@ -68,36 +73,44 @@ class NotificationService {
                 language: userLanguage,
             });
 
-            const recipient = this.getRecipient(channelConfig);
-            const sendTime  = new Date();
+            const results = await Promise.all(recipients.map(async (recipient) => {
+                const sendTime = new Date();
+                let sendResult;
+                switch (channel) {
+                    case 'whatsapp':
+                        sendResult = await this.wasenderService.sendMessage(recipient, messageContent);
+                        break;
+                    case 'email':
+                        sendResult = await this.sendEmailNotification({
+                            recipient, subscription, notificationType, subject, htmlContent: messageContent,
+                        });
+                        break;
+                    default:
+                        sendResult = { success: false, error: `Unsupported channel: ${channel}` };
+                }
 
-            let sendResult;
-            switch (channel) {
-                case 'telegram':
-                    sendResult = await this.telegramService.sendMessage(recipient, messageContent);
-                    break;
-                case 'email':
-                    sendResult = await this.sendEmailNotification({
-                        recipient, subscription, notificationType, subject, htmlContent: messageContent,
-                    });
-                    break;
-                default:
-                    sendResult = { success: false, error: `Unsupported channel: ${channel}` };
-            }
+                await this.createNotificationRecord({
+                    subscriptionId:  subscription.id,
+                    notificationType,
+                    channelType:     channel,
+                    recipient,
+                    messageContent,
+                    status:          sendResult.success ? 'sent' : 'failed',
+                    sentAt:          sendResult.success ? sendTime : null,
+                    errorMessage:    sendResult.error || null,
+                });
 
-            await this.createNotificationRecord({
-                subscriptionId:  subscription.id,
-                notificationType,
-                channelType:     channel,
-                recipient,
-                messageContent,
-                status:          sendResult.success ? 'sent' : 'failed',
-                sentAt:          sendResult.success ? sendTime : null,
-                errorMessage:    sendResult.error || null,
-            });
+                return { recipient, ...sendResult };
+            }));
 
             await this.updateChannelLastUsed(channel);
-            return sendResult;
+
+            return {
+                success:      results.some((r) => r.success),
+                allSucceeded: results.every((r) => r.success),
+                channel,
+                results,
+            };
         } catch (error) {
             console.error(`Error sending to ${channel}:`, error);
             return { success: false, channel, error: error.message };
@@ -280,13 +293,20 @@ class NotificationService {
         }
     }
 
-    getRecipient(channelConfig) {
-        if (channelConfig.config) {
-            if (channelConfig.config.chat_id)  return channelConfig.config.chat_id;
-            if (channelConfig.config.email)    return channelConfig.config.email;
-            if (channelConfig.config.address)  return channelConfig.config.address;
+    /**
+     * Resolve the list of recipients for a channel. Always returns an array —
+     * whatsapp can have multiple phone numbers, other channels wrap their
+     * single recipient in a 1-element array.
+     */
+    getRecipients(channelConfig, channel) {
+        const cfg = channelConfig.config || {};
+
+        if (channel === 'whatsapp') {
+            return Array.isArray(cfg.phone_numbers) ? cfg.phone_numbers.filter(Boolean) : [];
         }
-        return channelConfig.channel_config;
+
+        const single = cfg.email || cfg.address;
+        return single ? [single] : [];
     }
 
     formatDate(dateString, language = 'zh-CN') {
@@ -320,12 +340,22 @@ class NotificationService {
             const channelConfig = await this.getChannelConfig(channelType);
             if (!channelConfig) return { success: false, message: 'Channel not configured' };
 
-            if (channelType === 'telegram') {
-                const chatId = this.getRecipient(channelConfig);
-                return await this.telegramService.sendTestMessage(chatId);
+            if (channelType === 'whatsapp') {
+                const phoneNumbers = this.getRecipients(channelConfig, 'whatsapp');
+                if (phoneNumbers.length === 0) return { success: false, message: 'No recipients configured' };
+
+                const results = await Promise.all(
+                    phoneNumbers.map((phoneNumber) => this.wasenderService.sendTestMessage(phoneNumber))
+                );
+                return {
+                    success:      results.some((r) => r.success),
+                    allSucceeded: results.every((r) => r.success),
+                    results:      phoneNumbers.map((phoneNumber, i) => ({ recipient: phoneNumber, ...results[i] })),
+                };
             }
             if (channelType === 'email') {
-                const address = this.getRecipient(channelConfig);
+                const [address] = this.getRecipients(channelConfig, 'email');
+                if (!address) return { success: false, message: 'No recipients configured' };
                 return await this.emailService.sendTestMail(address);
             }
 

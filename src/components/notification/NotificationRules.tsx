@@ -34,7 +34,7 @@ export const NotificationRules: React.FC<NotificationRulesProps> = ({
   };
 
   const handleChannelToggle = (setting: NotificationSetting, channel: string) => {
-    const currentChannels = Array.isArray(setting.notification_channels) ? setting.notification_channels : ['telegram'];
+    const currentChannels = Array.isArray(setting.notification_channels) ? setting.notification_channels : ['whatsapp'];
     const channels = currentChannels.includes(channel)
       ? currentChannels.filter(c => c !== channel)
       : [...currentChannels, channel];
@@ -43,12 +43,12 @@ export const NotificationRules: React.FC<NotificationRulesProps> = ({
   };
 
   const renderChannelBadges = (setting: NotificationSetting) => {
-    const availableChannels = ['telegram', 'email'];
+    const availableChannels = ['whatsapp', 'email'];
     
     return (
       <div className="flex gap-2 flex-wrap">
         {availableChannels.map((channel) => {
-          const currentChannels = Array.isArray(setting.notification_channels) ? setting.notification_channels : ['telegram'];
+          const currentChannels = Array.isArray(setting.notification_channels) ? setting.notification_channels : ['whatsapp'];
           return (
             <Badge
               key={channel}
@@ -205,7 +205,7 @@ export const NotificationRules: React.FC<NotificationRulesProps> = ({
                 
                 {setting.is_enabled && (
                   <div className="text-xs text-muted-foreground">
-                    {t('channelsLabel')}: {Array.isArray(setting.notification_channels) ? setting.notification_channels.join(', ') : 'telegram'}
+                    {t('channelsLabel')}: {Array.isArray(setting.notification_channels) ? setting.notification_channels.join(', ') : 'whatsapp'}
                   </div>
                 )}
               </div>

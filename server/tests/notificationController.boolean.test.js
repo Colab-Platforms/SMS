@@ -45,7 +45,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 is_enabled: 1,                    // SQLite integer: true
                 repeat_notification: 0,           // SQLite integer: false
                 advance_days: 7,
-                notification_channels: ['telegram']
+                notification_channels: ['whatsapp']
             };
 
             const response = await request(app)
@@ -59,7 +59,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 data: {
                     is_enabled: true,            // normalized to standard boolean
                     advance_days: 7,
-                    notification_channels: '["telegram"]',
+                    notification_channels: '["whatsapp"]',
                     repeat_notification: false,  // normalized to standard boolean
                 }
             });
@@ -76,7 +76,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 is_enabled: true,                 // Standard boolean
                 repeat_notification: 0,           // SQLite integer
                 advance_days: 3,
-                notification_channels: ['telegram', 'email']
+                notification_channels: ['whatsapp', 'email']
             };
 
             const response = await request(app)
@@ -90,7 +90,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 data: {
                     is_enabled: true,            // true remains true
                     advance_days: 3,
-                    notification_channels: '["telegram","email"]',
+                    notification_channels: '["whatsapp","email"]',
                     repeat_notification: false,  // 0 normalized to false
                 }
             });
@@ -107,7 +107,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 is_enabled: '1',                  // String SQLite boolean
                 repeat_notification: 'false',     // String boolean
                 advance_days: 5,
-                notification_channels: ['telegram']
+                notification_channels: ['whatsapp']
             };
 
             const response = await request(app)
@@ -121,7 +121,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 data: {
                     is_enabled: true,            // '1' normalized to true
                     advance_days: 5,
-                    notification_channels: '["telegram"]',
+                    notification_channels: '["whatsapp"]',
                     repeat_notification: false,  // 'false' normalized to false
                 }
             });
@@ -132,7 +132,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 is_enabled: 2,                    // Invalid: not 0 or 1
                 repeat_notification: true,
                 advance_days: 5,
-                notification_channels: ['telegram']
+                notification_channels: ['whatsapp']
             };
 
             const response = await request(app)
@@ -163,7 +163,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 is_enabled: 1,                    // From SQLite database
                 repeat_notification: 0,           // From SQLite database
                 advance_days: 0,
-                notification_channels: ['telegram']
+                notification_channels: ['whatsapp']
             };
 
             const response = await request(app)
@@ -180,7 +180,7 @@ describe('NotificationController - Boolean Normalization (Issue #27)', () => {
                 data: {
                     is_enabled: true,            // 1 (SQLite true) normalized to true
                     advance_days: 0,             // For expiration_warning, advance_days is always 0
-                    notification_channels: '["telegram"]',
+                    notification_channels: '["whatsapp"]',
                     repeat_notification: false,  // 0 (SQLite false) normalized to false
                 }
             });

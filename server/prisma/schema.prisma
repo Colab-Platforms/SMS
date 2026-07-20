@@ -68,7 +68,7 @@ enum NotificationType {
 }
 
 enum ChannelType {
-  telegram
+  whatsapp
   email
 }
 

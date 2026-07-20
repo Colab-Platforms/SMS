@@ -1,5 +1,5 @@
 const NotificationService = require('../services/notificationService');
-const TelegramService = require('../services/telegramService');
+const WasenderService = require('../services/wasenderService');
 const responseHelper = require('../utils/responseHelper');
 const {
     validateNotificationSetting,
@@ -11,7 +11,7 @@ const {
 class NotificationController {
     constructor(prisma) {
         this.notificationService = new NotificationService(prisma);
-        this.telegramService     = new TelegramService();
+        this.wasenderService     = new WasenderService();
     }
 
     /**
@@ -39,7 +39,7 @@ class NotificationController {
 
             const parsedSettings = settings.map((s) => ({
                 ...s,
-                notification_channels: JSON.parse(s.notification_channels || '["telegram"]'),
+                notification_channels: JSON.parse(s.notification_channels || '["whatsapp"]'),
             }));
 
             responseHelper.success(res, parsedSettings);
@@ -65,8 +65,8 @@ class NotificationController {
                 .array(updateData.notification_channels, 'notification_channels')
                 .custom(
                     updateData.notification_channels, 'notification_channels',
-                    (ch) => !ch || ch.every((c) => ['telegram', 'email', 'webhook'].includes(c)),
-                    'notification_channels must contain only valid channel types: telegram, email, webhook'
+                    (ch) => !ch || ch.every((c) => ['whatsapp', 'email', 'webhook'].includes(c)),
+                    'notification_channels must contain only valid channel types: whatsapp, email, webhook'
                 )
                 .boolean(updateData.repeat_notification, 'repeat_notification');
 
@@ -98,7 +98,7 @@ class NotificationController {
                 data: {
                     is_enabled:            normalizedIsEnabled,
                     advance_days:          finalAdvanceDays,
-                    notification_channels: JSON.stringify(notification_channels || ['telegram']),
+                    notification_channels: JSON.stringify(notification_channels || ['whatsapp']),
                     repeat_notification:   normalizedRepeatNotification,
                 },
             });
@@ -169,7 +169,7 @@ class NotificationController {
             validator
                 .required(channel_type, 'channel_type')
                 .string(channel_type, 'channel_type')
-                .enum(channel_type, 'channel_type', ['telegram', 'email', 'webhook']);
+                .enum(channel_type, 'channel_type', ['whatsapp', 'email', 'webhook']);
 
             if (validator.hasErrors()) {
                 return responseHelper.badRequest(res, validator.getErrors());
@@ -300,67 +300,61 @@ class NotificationController {
     };
 
     /**
-     * 验证Telegram Chat ID
+     * 验证WhatsApp电话号码格式
      */
-    validateChatId = async (req, res) => {
+    validatePhoneNumber = async (req, res) => {
         try {
-            const { chat_id } = req.body;
+            const { phone_number } = req.body;
 
             // 验证输入数据
             const validator = createValidator();
             validator
-                .required(chat_id, 'chat_id')
-                .string(chat_id, 'chat_id')
-                .custom(chat_id, 'chat_id',
-                    (chatId) => /^-?\d+$/.test(chatId),
-                    'Chat ID must be a valid number string'
+                .required(phone_number, 'phone_number')
+                .string(phone_number, 'phone_number')
+                .custom(phone_number, 'phone_number',
+                    (value) => this.wasenderService.isValidPhoneNumber(value),
+                    'Phone number must be a valid E.164 number (e.g. +14155552671)'
                 );
 
             if (validator.hasErrors()) {
                 return responseHelper.badRequest(res, validator.getErrors());
             }
 
-            const result = await this.telegramService.validateChatId(chat_id);
-
-            if (result.success) {
-                responseHelper.success(res, result);
-            } else {
-                responseHelper.error(res, result.error || 'Invalid Chat ID', 400);
-            }
+            responseHelper.success(res, { success: true });
         } catch (error) {
-            console.error('Error validating Chat ID:', error);
-            responseHelper.error(res, 'Failed to validate Chat ID', 500);
+            console.error('Error validating phone number:', error);
+            responseHelper.error(res, 'Failed to validate phone number', 500);
         }
     };
 
     /**
-     * 获取Telegram Bot信息
+     * 获取WhatsApp会话连接状态
      */
-    getBotInfo = async (req, res) => {
+    getWhatsappSessionStatus = async (req, res) => {
         try {
-            const result = await this.telegramService.getBotInfo();
-            
+            const result = await this.wasenderService.getSessionStatus();
+
             if (result.success) {
                 responseHelper.success(res, result);
             } else {
-                responseHelper.error(res, result.error || 'Failed to get bot info', 400);
+                responseHelper.error(res, result.error || 'Failed to get session status', 400);
             }
         } catch (error) {
-            console.error('Error getting bot info:', error);
-            responseHelper.error(res, 'Failed to get bot info', 500);
+            console.error('Error getting WhatsApp session status:', error);
+            responseHelper.error(res, 'Failed to get WhatsApp session status', 500);
         }
     };
 
     /**
-     * 获取Telegram配置状态
+     * 获取WhatsApp配置状态
      */
-    getTelegramConfigStatus = (req, res) => {
+    getWhatsappConfigStatus = (req, res) => {
         try {
-            const status = this.telegramService.getConfigStatus();
+            const status = this.wasenderService.getConfigStatus();
             responseHelper.success(res, status);
         } catch (error) {
-            console.error('Error getting Telegram config status:', error);
-            responseHelper.error(res, 'Failed to get Telegram config status', 500);
+            console.error('Error getting WhatsApp config status:', error);
+            responseHelper.error(res, 'Failed to get WhatsApp config status', 500);
         }
     };
 

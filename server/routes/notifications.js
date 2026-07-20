@@ -36,10 +36,10 @@ function createProtectedNotificationRoutes(db) {
     // 统计路由
     router.get('/stats', notificationController.getNotificationStats);
 
-    // Telegram相关路由
-    router.post('/validate-chat-id', notificationController.validateChatId);
-    router.get('/telegram/bot-info', notificationController.getBotInfo);
-    router.get('/telegram/config-status', notificationController.getTelegramConfigStatus);
+    // WhatsApp相关路由
+    router.post('/validate-phone-number', notificationController.validatePhoneNumber);
+    router.get('/whatsapp/session-status', notificationController.getWhatsappSessionStatus);
+    router.get('/whatsapp/config-status', notificationController.getWhatsappConfigStatus);
 
     return router;
 }

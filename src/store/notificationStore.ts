@@ -3,8 +3,8 @@ import { persist } from 'zustand/middleware';
 
 // 通知渠道配置类型
 export interface NotificationChannelConfig {
-  telegram?: {
-    chat_id: string;
+  whatsapp?: {
+    phone_numbers: string[];
     validated?: boolean;
     lastValidated?: string;
   };
@@ -19,15 +19,15 @@ export interface NotificationChannelConfig {
 interface NotificationConfigState {
   // 渠道配置（本地缓存）
   channelConfigs: NotificationChannelConfig;
-  
+
   // 操作方法
-  setTelegramConfig: (config: { chat_id: string; validated?: boolean }) => void;
+  setWhatsappConfig: (config: { phone_numbers: string[]; validated?: boolean }) => void;
   setEmailConfig: (config: { email: string; validated?: boolean }) => void;
-  clearChannelConfig: (channel: 'telegram' | 'email') => void;
+  clearChannelConfig: (channel: 'whatsapp' | 'email') => void;
   clearAllConfigs: () => void;
-  
+
   // 验证状态管理
-  setChannelValidated: (channel: 'telegram' | 'email', validated: boolean) => void;
+  setChannelValidated: (channel: 'whatsapp' | 'email', validated: boolean) => void;
 }
 
 const initialState = {
@@ -39,15 +39,15 @@ export const useNotificationStore = create<NotificationConfigState>()(
     (set) => ({
       ...initialState,
       
-      setTelegramConfig: (config) => {
+      setWhatsappConfig: (config) => {
         set((state) => ({
           channelConfigs: {
             ...state.channelConfigs,
-            telegram: {
-              ...state.channelConfigs.telegram,
-              chat_id: config.chat_id,
-              validated: config.validated ?? state.channelConfigs.telegram?.validated,
-              lastValidated: config.validated ? new Date().toISOString() : state.channelConfigs.telegram?.lastValidated,
+            whatsapp: {
+              ...state.channelConfigs.whatsapp,
+              phone_numbers: config.phone_numbers,
+              validated: config.validated ?? state.channelConfigs.whatsapp?.validated,
+              lastValidated: config.validated ? new Date().toISOString() : state.channelConfigs.whatsapp?.lastValidated,
             },
           },
         }));

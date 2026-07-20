@@ -21,7 +21,7 @@ router.get('/types', TemplateController.getSupportedNotificationTypes);
 router.get('/channels', TemplateController.getSupportedChannels);
 
 // 获取特定模板
-// GET /api/templates/template?notificationType=renewal_reminder&language=zh-CN&channel=telegram
+// GET /api/templates/template?notificationType=renewal_reminder&language=zh-CN&channel=whatsapp
 router.get('/template', TemplateController.getTemplate);
 
 // 获取所有模板的概览信息

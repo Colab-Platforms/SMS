@@ -408,8 +408,8 @@ function validateNotificationSetting(data) {
 
         .array(data.notification_channels, 'notification_channels')
         .custom(data.notification_channels, 'notification_channels',
-            (channels) => channels && channels.every(channel => ['telegram', 'email', 'webhook'].includes(channel)),
-            'notification_channels must contain only valid channel types: telegram, email, webhook'
+            (channels) => channels && channels.every(channel => ['whatsapp', 'email', 'webhook'].includes(channel)),
+            'notification_channels must contain only valid channel types: whatsapp, email, webhook'
         )
 
         .boolean(data.repeat_notification, 'repeat_notification');
@@ -428,19 +428,20 @@ function validateChannelConfig(data) {
     validator
         .required(data.channel_type, 'channel_type')
         .string(data.channel_type, 'channel_type')
-        .enum(data.channel_type, 'channel_type', ['telegram', 'email', 'webhook'])
+        .enum(data.channel_type, 'channel_type', ['whatsapp', 'email', 'webhook'])
 
         .required(data.config, 'config')
         .object(data.config, 'config');
 
     // 根据渠道类型验证具体配置
-    if (data.channel_type === 'telegram' && data.config) {
+    if (data.channel_type === 'whatsapp' && data.config) {
         validator
-            .required(data.config.chat_id, 'config.chat_id')
-            .string(data.config.chat_id, 'config.chat_id')
-            .custom(data.config.chat_id, 'config.chat_id',
-                (chatId) => /^-?\d+$/.test(chatId),
-                'Telegram chat_id must be a valid number string'
+            .required(data.config.phone_numbers, 'config.phone_numbers')
+            .array(data.config.phone_numbers, 'config.phone_numbers')
+            .custom(data.config.phone_numbers, 'config.phone_numbers',
+                (numbers) => Array.isArray(numbers) && numbers.length > 0 &&
+                    numbers.every((n) => /^\+[1-9]\d{6,14}$/.test(n)),
+                'config.phone_numbers must be a non-empty array of valid E.164 numbers (e.g. +14155552671)'
             );
     } else if (data.channel_type === 'email' && data.config) {
         const emailAddress = data.config.email || data.config.address;
@@ -480,8 +481,8 @@ function validateSendNotification(data) {
 
         .array(data.channels, 'channels')
         .custom(data.channels, 'channels',
-            (channels) => !channels || channels.every(channel => ['telegram', 'email', 'webhook'].includes(channel)),
-            'channels must contain only valid channel types: telegram, email, webhook'
+            (channels) => !channels || channels.every(channel => ['whatsapp', 'email', 'webhook'].includes(channel)),
+            'channels must contain only valid channel types: whatsapp, email, webhook'
         );
 
     return validator;
