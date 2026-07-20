@@ -70,11 +70,6 @@ class MonthlyCategorySummaryService {
                 },
             });
 
-            if (payments.length === 0) {
-                logger.info(`No payments found for ${year}-${monthStr}`);
-                return;
-            }
-
             // Aggregate by category
             const categoryData = {};
             for (const payment of payments) {
@@ -132,13 +127,13 @@ class MonthlyCategorySummaryService {
                 ORDER BY year, month
             `;
 
+            // Clear existing summaries (even if no payment records remain)
+            await this.prisma.monthlyCategorySummary.deleteMany({});
+
             if (months.length === 0) {
                 logger.info('No payment records found for recalculation');
                 return;
             }
-
-            // Clear existing summaries
-            await this.prisma.monthlyCategorySummary.deleteMany({});
 
             // Recalculate per month
             for (const { year, month } of months) {
