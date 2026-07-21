@@ -82,7 +82,7 @@
 - channel_type: TEXT NOT NULL UNIQUE（telegram/email）
 - channel_config: TEXT NOT NULL（JSON格式配置）
   - Telegram: `{"chat_id": "123456789"}`
-  - Email: `{"email": "user@example.com"}`
+  - Email: `{"email_addresses": ["user@example.com", "ops@example.com"]}`（旧的单邮箱格式 `{"email": "..."}` 仍可读取，兼容历史配置）
 - is_active: BOOLEAN NOT NULL DEFAULT 1（是否激活）
 - last_used_at: DATETIME（最后使用时间）
 - created_at: DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -251,7 +251,7 @@ EMAIL_FROM=Subscription Manager <no-reply@outlook.com>
 curl -X POST \
   -H "Content-Type: application/json" \
   -b cookie.txt -c cookie.txt \
-  -d '{"channel_type":"email","config":{"email":"your_email@example.com"}}' \
+  -d '{"channel_type":"email","config":{"email_addresses":["your_email@example.com"]}}' \
   http://localhost:3001/api/protected/notifications/channels
 ```
 

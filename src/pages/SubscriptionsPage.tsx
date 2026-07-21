@@ -55,7 +55,7 @@ import {
 } from "@/store/subscriptionStore"
 import { optimisticUpdateSubscription, useOptimisticSubscriptions } from "@/store/optimisticStore"
 import { useSettingsStore } from "@/store/settingsStore"
-import { exportSubscriptionsToJSON, exportSubscriptionsToCSV, exportSubscriptionsToPDF, downloadFile } from "@/lib/subscription-utils"
+import { exportSubscriptionsToJSON, exportSubscriptionsToExcel, exportSubscriptionsToPDF, downloadFile } from "@/lib/subscription-utils"
 
 import { SubscriptionCard } from "@/components/subscription/SubscriptionCard"
 import { SubscriptionForm } from "@/components/subscription/SubscriptionForm"
@@ -351,12 +351,12 @@ export function SubscriptionsPage() {
     })
   }
 
-  const handleExportCSV = () => {
-    const csvData = exportSubscriptionsToCSV(subscriptions)
-    downloadFile(csvData, `subscriptions-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+  const handleExportExcel = async () => {
+    const excelBlob = await exportSubscriptionsToExcel(subscriptions)
+    downloadFile(excelBlob, `subscriptions-${new Date().toISOString().split('T')[0]}.xlsx`)
     toast({
       title: t('subscription:exportSuccess'),
-      description: t('subscription:exportToCsv')
+      description: t('subscription:exportToExcel')
     })
   }
 
@@ -443,8 +443,8 @@ export function SubscriptionsPage() {
               <DropdownMenuItem onClick={handleExportJSON}>
                 {t('subscription:exportAsJson')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleExportCSV}>
-                {t('subscription:exportAsCsv')}
+              <DropdownMenuItem onClick={handleExportExcel}>
+                {t('subscription:exportAsExcel')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleExportPDF}>
                 {t('subscription:exportAsPdf')}

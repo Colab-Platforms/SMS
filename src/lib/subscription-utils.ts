@@ -1,6 +1,8 @@
 import { BillingCycle, Subscription, SubscriptionStatus } from '@/store/subscriptionStore'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import ExcelJS from 'exceljs'
+import { format } from 'date-fns'
 
 
 
@@ -248,47 +250,165 @@ export function downloadFile(data: string | Blob, filename: string, contentType?
 }
 
 /**
- * Export subscriptions to CSV format
+ * Get the ARGB fill color used to highlight a subscription status in the Excel export
  */
-export function exportSubscriptionsToCSV(subscriptions: Subscription[]): string {
-  // Define the CSV headers
-  const headers = [
-    'name',
-    'plan',
-    'billingCycle',
-    'nextBillingDate',
-    'amount',
-    'currency',
-    'paymentMethod',
-    'startDate',
-    'status',
-    'category',
-    'renewalType',
-    'notes',
-    'website'
-  ].join(',')
-  
-  // Convert each subscription to a CSV row
-  const rows = subscriptions.map(sub => {
-    return [
-      `"${sub.name.replace(/"/g, '""')}"`,
-      `"${sub.plan.replace(/"/g, '""')}"`,
-      sub.billingCycle,
-      sub.nextBillingDate,
+function getStatusFillARGB(status: SubscriptionStatus): string {
+  switch (status) {
+    case 'active':
+      return 'FF10B981' // emerald-500
+    case 'trial':
+      return 'FFF59E0B' // amber-500
+    case 'cancelled':
+      return 'FFF43F5E' // rose-500
+    default:
+      return 'FF64748B' // slate-500
+  }
+}
+
+const EXCEL_HEADERS = [
+  'Name', 'Plan', 'Billing Cycle', 'Next Billing', 'Amount', 'Currency',
+  'Payment Method', 'Start Date', 'Status', 'Category', 'Renewal Type'
+]
+const EXCEL_COLUMN_WIDTHS = [24, 16, 13, 13, 12, 10, 18, 13, 12, 18, 13]
+const EXCEL_BRAND_ARGB = 'FF2980B9'
+const EXCEL_HEADER_ROW = 4
+const EXCEL_AMOUNT_COL = 5
+const EXCEL_STATUS_COL = 9
+const EXCEL_RENEWAL_COL = 11
+
+/**
+ * Export subscriptions to a styled Excel (.xlsx) workbook with a branded
+ * header banner, color-coded status cells and compact dd-MM-yy dates.
+ */
+export async function exportSubscriptionsToExcel(subscriptions: Subscription[]): Promise<Blob> {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'Subscription Manager'
+  workbook.created = new Date()
+
+  const sheet = workbook.addWorksheet('Subscriptions', {
+    views: [{ state: 'frozen', ySplit: EXCEL_HEADER_ROW }]
+  })
+
+  const colCount = EXCEL_HEADERS.length
+  EXCEL_COLUMN_WIDTHS.forEach((width, i) => {
+    sheet.getColumn(i + 1).width = width
+  })
+
+  const fillRow = (rowNumber: number, argb: string) => {
+    for (let c = 1; c <= colCount; c++) {
+      sheet.getCell(rowNumber, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
+    }
+  }
+
+  // --- Title banner ---
+  sheet.mergeCells(1, 1, 1, colCount)
+  fillRow(1, EXCEL_BRAND_ARGB)
+  const titleCell = sheet.getCell(1, 1)
+  titleCell.value = '📊 Subscriptions Report'
+  titleCell.font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } }
+  titleCell.alignment = { vertical: 'middle', horizontal: 'left' }
+  sheet.getRow(1).height = 28
+
+  // --- Subtitle ---
+  sheet.mergeCells(2, 1, 2, colCount)
+  fillRow(2, EXCEL_BRAND_ARGB)
+  const subtitleCell = sheet.getCell(2, 1)
+  const generatedOn = format(new Date(), 'dd-MM-yy')
+  subtitleCell.value = `Generated on ${generatedOn}  ·  ${subscriptions.length} subscription${subscriptions.length === 1 ? '' : 's'}`
+  subtitleCell.font = { italic: true, size: 10, color: { argb: 'FFEAF2F8' } }
+  subtitleCell.alignment = { vertical: 'middle', horizontal: 'left' }
+  sheet.getRow(2).height = 18
+
+  // Row 3 is left blank as a visual spacer between the banner and the table
+
+  // --- Header row ---
+  const headerRow = sheet.getRow(EXCEL_HEADER_ROW)
+  EXCEL_HEADERS.forEach((label, i) => {
+    const cell = headerRow.getCell(i + 1)
+    cell.value = label
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EXCEL_BRAND_ARGB } }
+    cell.alignment = { vertical: 'middle', horizontal: 'left' }
+  })
+  headerRow.height = 20
+  sheet.autoFilter = { from: { row: EXCEL_HEADER_ROW, column: 1 }, to: { row: EXCEL_HEADER_ROW, column: colCount } }
+
+  // --- Data rows ---
+  subscriptions.forEach((sub, idx) => {
+    const row = sheet.getRow(EXCEL_HEADER_ROW + 1 + idx)
+    const values = [
+      sub.name,
+      sub.plan,
+      getBillingCycleLabel(sub.billingCycle),
+      formatShortDate(sub.nextBillingDate),
       sub.amount,
       sub.currency,
-      `"${(sub.paymentMethod?.label || 'Unknown').replace(/"/g, '""')}"`,
-      sub.startDate,
-      sub.status,
-      sub.category?.value || 'other',
-      sub.renewalType,
-      `"${(sub.notes || '').replace(/"/g, '""')}"`,
-      `"${(sub.website || '').replace(/"/g, '""')}"`
-    ].join(',')
+      sub.paymentMethod?.label || 'Unknown',
+      formatShortDate(sub.startDate),
+      sub.status.charAt(0).toUpperCase() + sub.status.slice(1),
+      sub.category?.label || sub.category?.value || 'Other',
+      sub.renewalType === 'auto' ? '● Auto' : '○ Manual'
+    ]
+    values.forEach((value, i) => {
+      row.getCell(i + 1).value = value
+    })
+
+    // Zebra striping for readability
+    if (idx % 2 === 1) {
+      for (let c = 1; c <= colCount; c++) {
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F7FA' } }
+      }
+    }
+
+    // Bottom border on every data cell
+    for (let c = 1; c <= colCount; c++) {
+      row.getCell(c).border = { bottom: { style: 'thin', color: { argb: 'FFE5E9EF' } } }
+    }
+
+    const amountCell = row.getCell(EXCEL_AMOUNT_COL)
+    amountCell.numFmt = '#,##0.00'
+    amountCell.alignment = { horizontal: 'right' }
+
+    // Status highlight — the core "highlight status" ask: green/amber/red fill
+    const statusCell = row.getCell(EXCEL_STATUS_COL)
+    statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: getStatusFillARGB(sub.status) } }
+    statusCell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    statusCell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+    const renewalCell = row.getCell(EXCEL_RENEWAL_COL)
+    renewalCell.font = { color: { argb: sub.renewalType === 'auto' ? 'FF2563EB' : 'FF64748B' } }
+
+    row.height = 18
   })
-  
-  // Combine headers and rows
-  return [headers, ...rows].join('\n')
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  return new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  })
+}
+
+/**
+ * Format a date string as dd-MM-yy for compact PDF/Excel display
+ */
+function formatShortDate(dateString: string): string {
+  const date = new Date(dateString)
+  return isNaN(date.getTime()) ? dateString : format(date, 'dd-MM-yy')
+}
+
+/**
+ * Get the RGB color used to highlight a subscription status in the PDF
+ */
+function getStatusRGB(status: SubscriptionStatus): [number, number, number] {
+  switch (status) {
+    case 'active':
+      return [16, 185, 129] // emerald-500
+    case 'trial':
+      return [245, 158, 11] // amber-500
+    case 'cancelled':
+      return [244, 63, 94] // rose-500
+    default:
+      return [100, 116, 139] // slate-500
+  }
 }
 
 /**
@@ -296,25 +416,63 @@ export function exportSubscriptionsToCSV(subscriptions: Subscription[]): string 
  */
 export function exportSubscriptionsToPDF(subscriptions: Subscription[]): Blob {
   const doc = new jsPDF({ orientation: 'landscape' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
 
-  doc.setFontSize(14)
-  doc.text('Subscriptions', 14, 15)
+  const BRAND_BLUE: [number, number, number] = [41, 128, 185]
+  const HEADER_HEIGHT = 24
+
+  // --- Branded header banner ---
+  doc.setFillColor(...BRAND_BLUE)
+  doc.rect(0, 0, pageWidth, HEADER_HEIGHT, 'F')
+
+  // Simple vector "report" icon mark (rounded badge with stacked list bars)
+  const badgeX = 14
+  const badgeY = 6
+  const badgeSize = 12
+  doc.setFillColor(255, 255, 255)
+  doc.roundedRect(badgeX, badgeY, badgeSize, badgeSize, 2.5, 2.5, 'F')
+  doc.setDrawColor(...BRAND_BLUE)
+  doc.setLineWidth(1.3)
+  doc.line(badgeX + 2.5, badgeY + 3.5, badgeX + badgeSize - 2.5, badgeY + 3.5)
+  doc.line(badgeX + 2.5, badgeY + 6, badgeX + badgeSize - 4.5, badgeY + 6)
+  doc.line(badgeX + 2.5, badgeY + 8.5, badgeX + badgeSize - 2.5, badgeY + 8.5)
+
+  // Title + subtitle
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text('Subscriptions Report', badgeX + badgeSize + 5, badgeY + 6)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  const generatedOn = format(new Date(), 'dd-MM-yy')
+  doc.text(
+    `Generated on ${generatedOn}  ·  ${subscriptions.length} subscription${subscriptions.length === 1 ? '' : 's'}`,
+    badgeX + badgeSize + 5,
+    badgeY + 11.5
+  )
+  doc.setTextColor(0, 0, 0)
 
   const headers = [
     'Name', 'Plan', 'Billing Cycle', 'Next Billing', 'Amount', 'Currency',
     'Payment Method', 'Start Date', 'Status', 'Category', 'Renewal Type'
   ]
 
+  const STATUS_COL = 8
+  const RENEWAL_COL = 10
+  const AMOUNT_COL = 4
+
   const rows = subscriptions.map(sub => [
     sub.name,
     sub.plan,
     sub.billingCycle,
-    sub.nextBillingDate,
+    formatShortDate(sub.nextBillingDate),
     String(sub.amount),
     sub.currency,
     sub.paymentMethod?.label || 'Unknown',
-    sub.startDate,
-    sub.status,
+    formatShortDate(sub.startDate),
+    sub.status.charAt(0).toUpperCase() + sub.status.slice(1),
     sub.category?.value || 'other',
     sub.renewalType
   ])
@@ -322,10 +480,90 @@ export function exportSubscriptionsToPDF(subscriptions: Subscription[]): Blob {
   autoTable(doc, {
     head: [headers],
     body: rows,
-    startY: 20,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [41, 128, 185] }
+    startY: HEADER_HEIGHT + 6,
+    theme: 'grid',
+    styles: {
+      fontSize: 8,
+      cellPadding: 3,
+      lineColor: [225, 230, 235],
+      lineWidth: 0.1,
+      valign: 'middle'
+    },
+    headStyles: {
+      fillColor: BRAND_BLUE,
+      textColor: 255,
+      fontStyle: 'bold'
+    },
+    alternateRowStyles: {
+      fillColor: [245, 247, 250]
+    },
+    columnStyles: {
+      [AMOUNT_COL]: { halign: 'right' },
+      [STATUS_COL]: { halign: 'center', cellWidth: 22 },
+      [RENEWAL_COL]: { cellWidth: 26, cellPadding: { top: 3, right: 3, bottom: 3, left: 7.5 } }
+    },
+    didDrawCell: (data) => {
+      if (data.section !== 'body') return
+
+      // Status highlight pill
+      if (data.column.index === STATUS_COL) {
+        const status = subscriptions[data.row.index]?.status ?? 'active'
+        const [r, g, b] = getStatusRGB(status)
+        const label = data.cell.text.join(' ')
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(7.5)
+
+        const paddingX = 3
+        const pillHeight = Math.min(data.cell.height - 4, 6.5)
+        const textWidth = doc.getTextWidth(label)
+        const pillWidth = Math.min(textWidth + paddingX * 2, data.cell.width - 4)
+        const pillX = data.cell.x + (data.cell.width - pillWidth) / 2
+        const pillY = data.cell.y + (data.cell.height - pillHeight) / 2
+
+        doc.setFillColor(r, g, b)
+        doc.roundedRect(pillX, pillY, pillWidth, pillHeight, pillHeight / 2, pillHeight / 2, 'F')
+
+        doc.setTextColor(255, 255, 255)
+        doc.text(label, pillX + pillWidth / 2, pillY + pillHeight / 2, {
+          align: 'center',
+          baseline: 'middle'
+        })
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(0, 0, 0)
+      }
+
+      // Renewal type indicator dot (auto = filled blue, manual = outlined gray)
+      if (data.column.index === RENEWAL_COL) {
+        const sub = subscriptions[data.row.index]
+        const dotR = 1.3
+        const dotX = data.cell.x + 3.5
+        const dotY = data.cell.y + data.cell.height / 2
+
+        if (sub?.renewalType === 'auto') {
+          doc.setFillColor(59, 130, 246) // blue-500
+          doc.circle(dotX, dotY, dotR, 'F')
+        } else {
+          doc.setDrawColor(148, 163, 184) // slate-400
+          doc.setLineWidth(0.4)
+          doc.circle(dotX, dotY, dotR, 'S')
+        }
+      }
+    }
   })
+
+  // --- Footer on every page ---
+  const totalPages = doc.getNumberOfPages()
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(120, 120, 120)
+    doc.text('Subscription Manager', 14, pageHeight - 8)
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - 14, pageHeight - 8, { align: 'right' })
+  }
 
   return doc.output('blob')
 }

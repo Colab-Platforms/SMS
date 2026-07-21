@@ -444,10 +444,21 @@ function validateChannelConfig(data) {
                 'config.phone_numbers must be a non-empty array of valid E.164 numbers (e.g. +14155552671)'
             );
     } else if (data.channel_type === 'email' && data.config) {
-        const emailAddress = data.config.email || data.config.address;
-        validator
-            .required(emailAddress, 'config.email')
-            .email(emailAddress, 'config.email');
+        if (Array.isArray(data.config.email_addresses)) {
+            validator
+                .required(data.config.email_addresses, 'config.email_addresses')
+                .array(data.config.email_addresses, 'config.email_addresses')
+                .custom(data.config.email_addresses, 'config.email_addresses',
+                    (addresses) => Array.isArray(addresses) && addresses.length > 0 &&
+                        addresses.every((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a)),
+                    'config.email_addresses must be a non-empty array of valid email addresses'
+                );
+        } else {
+            const emailAddress = data.config.email || data.config.address;
+            validator
+                .required(emailAddress, 'config.email')
+                .email(emailAddress, 'config.email');
+        }
     } else if (data.channel_type === 'webhook' && data.config) {
         validator
             .required(data.config.url, 'config.url')

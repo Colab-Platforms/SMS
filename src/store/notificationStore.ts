@@ -9,7 +9,7 @@ export interface NotificationChannelConfig {
     lastValidated?: string;
   };
   email?: {
-    email: string;
+    email_addresses: string[];
     validated?: boolean;
     lastValidated?: string;
   };
@@ -22,7 +22,7 @@ interface NotificationConfigState {
 
   // 操作方法
   setWhatsappConfig: (config: { phone_numbers: string[]; validated?: boolean }) => void;
-  setEmailConfig: (config: { email: string; validated?: boolean }) => void;
+  setEmailConfig: (config: { email_addresses: string[]; validated?: boolean }) => void;
   clearChannelConfig: (channel: 'whatsapp' | 'email') => void;
   clearAllConfigs: () => void;
 
@@ -59,7 +59,7 @@ export const useNotificationStore = create<NotificationConfigState>()(
             ...state.channelConfigs,
             email: {
               ...state.channelConfigs.email,
-              email: config.email,
+              email_addresses: config.email_addresses,
               validated: config.validated ?? state.channelConfigs.email?.validated,
               lastValidated: config.validated ? new Date().toISOString() : state.channelConfigs.email?.lastValidated,
             },

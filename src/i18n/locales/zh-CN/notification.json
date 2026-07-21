@@ -168,7 +168,11 @@
   },
   "emailConfig": {
     "address": "收件邮箱",
+    "addresses": "收件邮箱",
     "help": "系统会将通知发送到此邮箱。在启用邮件通知前，请先在环境变量中配置 SMTP 服务。",
+    "addressHelp": "请输入一个或多个收件邮箱地址，系统将向每个地址发送通知。在启用邮件通知前，请先在环境变量中配置 SMTP 服务。",
+    "addAddress": "添加邮箱地址",
+    "removeAddress": "删除邮箱地址",
     "saved": "邮件渠道配置已保存",
     "saveError": "保存邮件配置失败",
     "active": "邮件渠道已启用",

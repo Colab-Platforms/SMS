@@ -168,7 +168,11 @@
   },
   "emailConfig": {
     "address": "Recipient Email",
+    "addresses": "Recipient Emails",
     "help": "The system will send notifications to this email address. Make sure the SMTP service is configured via environment variables before enabling email notifications.",
+    "addressHelp": "Enter one or more recipient email addresses. The system will send a notification to each address. Make sure the SMTP service is configured via environment variables before enabling email notifications.",
+    "addAddress": "Add email address",
+    "removeAddress": "Remove email address",
     "saved": "Email channel saved",
     "saveError": "Failed to save email configuration",
     "active": "Email channel is active",

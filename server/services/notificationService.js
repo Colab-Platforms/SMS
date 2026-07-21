@@ -305,6 +305,14 @@ class NotificationService {
             return Array.isArray(cfg.phone_numbers) ? cfg.phone_numbers.filter(Boolean) : [];
         }
 
+        if (channel === 'email') {
+            if (Array.isArray(cfg.email_addresses)) {
+                return cfg.email_addresses.filter(Boolean);
+            }
+            const legacySingle = cfg.email || cfg.address;
+            return legacySingle ? [legacySingle] : [];
+        }
+
         const single = cfg.email || cfg.address;
         return single ? [single] : [];
     }
@@ -354,9 +362,17 @@ class NotificationService {
                 };
             }
             if (channelType === 'email') {
-                const [address] = this.getRecipients(channelConfig, 'email');
-                if (!address) return { success: false, message: 'No recipients configured' };
-                return await this.emailService.sendTestMail(address);
+                const addresses = this.getRecipients(channelConfig, 'email');
+                if (addresses.length === 0) return { success: false, message: 'No recipients configured' };
+
+                const results = await Promise.all(
+                    addresses.map((address) => this.emailService.sendTestMail(address))
+                );
+                return {
+                    success:      results.some((r) => r.success),
+                    allSucceeded: results.every((r) => r.success),
+                    results:      addresses.map((address, i) => ({ recipient: address, ...results[i] })),
+                };
             }
 
             return { success: false, message: 'Unsupported channel type' };
@@ -413,9 +429,15 @@ class NotificationService {
         if (!html) return '';
         return html
             .replace(/<br\s*\/?>/gi, '\n')
-            .replace(/<p[^>]*>/gi, '\n')
-            .replace(/<\/p>/gi, '\n')
+            .replace(/<(p|div|hr)[^>]*>/gi, '\n')
+            .replace(/<\/(p|div|tr|table|h[1-6]|li)>/gi, '\n')
             .replace(/<[^>]+>/g, '')
+            .replace(/&quot;/g, '"')
+            .replace(/&middot;/g, '·')
+            .replace(/&mdash;/g, '—')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/[ \t]+\n/g, '\n')
             .replace(/\n{3,}/g, '\n\n')
             .trim();
     }
