@@ -213,8 +213,7 @@ interface SubscriptionState {
   getTotalYearlySpending: () => number
   getUpcomingRenewals: (days: number) => Subscription[]
   getRecentlyPaid: (days: number) => Subscription[]
-  getSpendingByCategory: () => Record<string, number>
-  
+
   // Get unique categories from subscriptions
   getUniqueCategories: () => CategoryOption[]
 }
@@ -611,43 +610,6 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           .sort((a, b) =>
             new Date(b.lastBillingDate!).getTime() - new Date(a.lastBillingDate!).getTime()
           )
-      },
-      
-      // Get spending by category
-      getSpendingByCategory: () => {
-        const { subscriptions, categories } = get();
-        const { currency: userCurrency } = useSettingsStore.getState();
-
-        // Get all unique category IDs from subscriptions
-        const uniqueCategoryIds = [...new Set(subscriptions.map(sub => sub.categoryId).filter(id => id != null))];
-
-        return uniqueCategoryIds.reduce((acc, categoryId) => {
-          const category = categories.find(cat => cat.id === categoryId);
-          const categoryValue = category?.value || 'other';
-
-          const categoryTotal = subscriptions
-            .filter(sub => sub.status === 'active' && sub.categoryId === categoryId)
-            .reduce((total, sub) => {
-              // Convert the amount to user's preferred currency
-              const convertedAmount = convertCurrency(sub.amount, sub.currency, userCurrency);
-
-              switch (sub.billingCycle) {
-                case 'monthly':
-                  return total + (convertedAmount * 12);
-                case 'yearly':
-                  return total + convertedAmount;
-                case 'quarterly':
-                  return total + (convertedAmount * 4);
-                case 'semiannual':
-                  return total + (convertedAmount * 2);
-                default:
-                  return total;
-              }
-            }, 0);
-
-          acc[categoryValue] = categoryTotal;
-          return acc;
-        }, {} as Record<string, number>);
       },
       
       // Get unique categories from actual subscriptions

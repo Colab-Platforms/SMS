@@ -23,7 +23,7 @@ import {
 } from "@/store/subscriptionStore"
 import { useSettingsStore } from "@/store/settingsStore"
 import { formatCurrencyAmount } from "@/utils/currency"
-import { getCurrentMonthSpending, getCurrentYearSpending } from "@/lib/expense-analytics-api"
+import { getCurrentMonthSpending, getCurrentYearSpending, getCurrentYearCategorySpending } from "@/lib/expense-analytics-api"
 
 import { SubscriptionForm } from "@/components/subscription/SubscriptionForm"
 import { StatCard } from "@/components/dashboard/StatCard"
@@ -47,7 +47,6 @@ function HomePage() {
     fetchSubscriptions,
     getUpcomingRenewals,
     getRecentlyPaid,
-    getSpendingByCategory,
     initializeData,
     initializeWithRenewals,
     isLoading
@@ -56,6 +55,7 @@ function HomePage() {
   // State for API-based spending data
   const [monthlySpending, setMonthlySpending] = useState<number>(0)
   const [yearlySpending, setYearlySpending] = useState<number>(0)
+  const [spendingByCategory, setSpendingByCategory] = useState<Record<string, number>>({})
   const [isLoadingSpending, setIsLoadingSpending] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -75,13 +75,15 @@ function HomePage() {
       setIsLoadingSpending(true)
 
       try {
-        const [currentMonth, currentYear] = await Promise.all([
+        const [currentMonth, currentYear, currentYearByCategory] = await Promise.all([
           getCurrentMonthSpending(userCurrency),
-          getCurrentYearSpending(userCurrency)
+          getCurrentYearSpending(userCurrency),
+          getCurrentYearCategorySpending(userCurrency)
         ])
 
         setMonthlySpending(currentMonth)
         setYearlySpending(currentYear)
+        setSpendingByCategory(currentYearByCategory)
       } catch (error) {
         console.error('Failed to load spending data:', error)
       } finally {
@@ -122,12 +124,14 @@ function HomePage() {
 
       // Also refresh spending data
       if (userCurrency) {
-        const [currentMonth, currentYear] = await Promise.all([
+        const [currentMonth, currentYear, currentYearByCategory] = await Promise.all([
           getCurrentMonthSpending(userCurrency),
-          getCurrentYearSpending(userCurrency)
+          getCurrentYearSpending(userCurrency),
+          getCurrentYearCategorySpending(userCurrency)
         ])
         setMonthlySpending(currentMonth)
         setYearlySpending(currentYear)
+        setSpendingByCategory(currentYearByCategory)
       }
 
       toast({
@@ -174,7 +178,6 @@ function HomePage() {
   // Get data for dashboard (non-API data)
   const upcomingRenewals = getUpcomingRenewals(7)
   const recentlyPaidSubscriptions = getRecentlyPaid(7)
-  const spendingByCategory = getSpendingByCategory()
 
   if (isLoading || isLoadingSpending) {
     return (

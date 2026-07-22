@@ -307,6 +307,30 @@ export async function getCurrentYearSpending(currency: string): Promise<number> 
 }
 
 /**
+ * 获取当年各分类的实际支出（只计算到当前月份，与 getCurrentYearSpending 的总额一致）
+ */
+export async function getCurrentYearCategorySpending(currency: string): Promise<Record<string, number>> {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  try {
+    const response = await getMonthlyCategorySummaries(currentYear, 1, currentYear, currentMonth);
+    const result: Record<string, number> = {};
+
+    response.summaries.forEach(summary => {
+      const convertedAmount = convertCurrency(summary.totalAmount, summary.baseCurrency, currency);
+      result[summary.categoryValue] = (result[summary.categoryValue] || 0) + convertedAmount;
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Failed to get current year category spending:', error);
+    return {};
+  }
+}
+
+/**
  * 从新API数据计算分类支出
  */
 export function calculateCategoryExpensesFromNewApi(

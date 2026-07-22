@@ -21,7 +21,7 @@
   "subscriptionsRenewingInNext7Days": "未来7天内续费的订阅",
   "noUpcomingRenewalsNext7Days": "未来7天内没有即将续费的订阅",
   "spendingByCategory": "按分类支出",
-  "annualBreakdownByCategory": "按分类的年度统计",
+  "annualBreakdownByCategory": "本年度各分类实际支出",
   "noSpendingDataAvailable": "暂无支出数据",
   "paidOn": "支付于",
   "today": "今天",
