@@ -27,14 +27,6 @@ class Config {
     }
 
     /**
-     * Get TianAPI key for exchange rate fetching
-     * @returns {string|null}
-     */
-    getTianApiKey() {
-        return process.env.TIANAPI_KEY || null;
-    }
-
-    /**
      * Get base currency
      * @returns {string}
      */
@@ -74,7 +66,6 @@ class Config {
             database:       'NeonDB (PostgreSQL via Prisma)',
             logLevel:       this.getLogLevel(),
             baseCurrency:   this.getBaseCurrency(),
-            hasTianApiKey:  !!this.getTianApiKey(),
             emailConfigured: this.getEmailConfig().enabled,
         };
     }
@@ -87,7 +78,6 @@ class Config {
         console.log(`   Database:       ${s.database}`);
         console.log(`   Log Level:      ${s.logLevel}`);
         console.log(`   Base Currency:  ${s.baseCurrency}`);
-        console.log(`   TianAPI Key:    ${s.hasTianApiKey ? '✅ Set' : '❌ Not set'}`);
         console.log(`   Email:          ${s.emailConfigured ? '✅ Enabled' : '❌ Disabled'}`);
     }
 

@@ -14,11 +14,10 @@ export interface ExchangeRate {
 export interface ExchangeRateStatus {
   isRunning: boolean;
   nextRun: string | null;
-  hasApiKey: boolean;
 }
 
 export interface ExchangeRateConfigStatus {
-  tianApiConfigured: boolean;
+  configured: boolean;
   provider: string;
   updateFrequency: string;
   baseCurrency?: string;

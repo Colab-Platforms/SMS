@@ -31,6 +31,17 @@ export function formatCurrencyAmount(
 }
 
 /**
+ * Format an exchange rate with enough precision to tell nearby rates apart
+ * (formatCurrencyAmount's 2-decimal rounding collapses distinct rates like 0.0091 and 0.01462 to the same "0.01")
+ */
+export function formatExchangeRate(rate: number): string {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  }).format(rate)
+}
+
+/**
  * Convert an amount from one currency to another
  */
 export function convertCurrency(

@@ -7,9 +7,9 @@ const logger = require('../utils/logger');
  * Periodically fetches live exchange rates and upserts them into PostgreSQL.
  */
 class ExchangeRateScheduler {
-    constructor(prisma, apiKey) {
+    constructor(prisma) {
         this.prisma              = prisma;
-        this.exchangeRateService = new ExchangeRateApiService(apiKey);
+        this.exchangeRateService = new ExchangeRateApiService();
         this.isRunning           = false;
         this.task                = null;
     }
@@ -110,11 +110,12 @@ class ExchangeRateScheduler {
                             to_currency:   rate.to_currency,
                         },
                     },
-                    update: { rate: rate.rate, updated_at: new Date() },
+                    update: { rate: rate.rate, source: 'frankfurter', updated_at: new Date() },
                     create: {
                         from_currency: rate.from_currency,
                         to_currency:   rate.to_currency,
                         rate:          rate.rate,
+                        source:        'frankfurter',
                     },
                 })
             )
@@ -128,7 +129,6 @@ class ExchangeRateScheduler {
         return {
             isRunning: this.isRunning,
             nextRun:   this.task ? this.task.nextDate() : null,
-            hasApiKey: !!this.exchangeRateService.apiKey,
         };
     }
 }

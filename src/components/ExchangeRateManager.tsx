@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, RefreshCw, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { useSettingsStore } from '@/store/settingsStore';
 import { type CurrencyType, isBaseCurrency } from '@/config/currency';
-import { formatCurrencyAmount } from '@/utils/currency';
+import { formatExchangeRate } from '@/utils/currency';
 import { logger } from '@/utils/logger';
 import { CURRENCY_NAMES } from '@/config/constants';
 
@@ -128,13 +128,13 @@ export function ExchangeRateManager() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">{t('apiProvider')}</p>
-                  <p className="text-sm text-muted-foreground">tianapi.com</p>
+                  <p className="text-sm text-muted-foreground">{exchangeRateConfigStatus?.provider || 'frankfurter.dev'}</p>
                 </div>
 
                 <div className="space-y-1">
                   <p className="text-sm font-medium">{t('apiConfiguration')}</p>
                   <div className="flex items-center gap-2">
-                    {exchangeRateConfigStatus?.tianApiConfigured ? (
+                    {exchangeRateConfigStatus?.configured ? (
                       <>
                         <CheckCircle className="h-4 w-4 text-green-500" />
                         <span className="text-sm text-green-600">{t('configured')}</span>
@@ -165,7 +165,7 @@ export function ExchangeRateManager() {
 
 
 
-              {!exchangeRateConfigStatus?.tianApiConfigured && (
+              {!exchangeRateConfigStatus?.configured && (
                 <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                   <AlertCircle className="h-4 w-4 text-yellow-600" />
                   <p className="text-sm text-yellow-800">
@@ -178,7 +178,7 @@ export function ExchangeRateManager() {
             <div className="flex gap-2 mt-4">
               <Button
                 onClick={handleUpdateRates}
-                disabled={isUpdating || !exchangeRateConfigStatus?.tianApiConfigured}
+                disabled={isUpdating || !exchangeRateConfigStatus?.configured}
                 size="sm"
               >
                 {isUpdating ? (
@@ -224,7 +224,7 @@ export function ExchangeRateManager() {
                     {CURRENCY_NAMES[currency as keyof typeof CURRENCY_NAMES] || currency}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {formatCurrencyAmount(rate, currency, false)}
+                    {formatExchangeRate(rate)}
                   </p>
                 </div>
                 {isBaseCurrency(currency) && (

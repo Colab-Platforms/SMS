@@ -56,7 +56,7 @@ app.use(createSessionMiddleware());
         console.log('🚀 Database ready');
 
         // Initialize schedulers with the Prisma client
-        const exchangeRateScheduler        = new ExchangeRateScheduler(prisma, process.env.TIANAPI_KEY);
+        const exchangeRateScheduler        = new ExchangeRateScheduler(prisma);
         const subscriptionRenewalScheduler = new SubscriptionRenewalScheduler(prisma);
         const notificationScheduler        = new NotificationScheduler();
 

@@ -102,7 +102,8 @@ async function seed() {
         }
         console.log(`✅ ${DEFAULT_PAYMENT_METHODS.length} payment methods seeded`);
 
-        // Seed exchange rates
+        // Seed exchange rates (insert-only — never overwrite a rate that already
+        // exists, since the scheduler may have since replaced it with a live fetch)
         for (const rate of DEFAULT_EXCHANGE_RATES) {
             await prisma.exchangeRate.upsert({
                 where: {
@@ -111,7 +112,7 @@ async function seed() {
                         to_currency: rate.to_currency,
                     },
                 },
-                update: { rate: rate.rate },
+                update: {},
                 create: rate,
             });
         }

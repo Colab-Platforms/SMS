@@ -24,8 +24,8 @@ function createExchangeRateRoutes(db) {
     // GET exchange rate configuration status (Public)
     router.get('/config-status', (req, res) => {
         res.json({
-            tianApiConfigured: !!process.env.TIANAPI_KEY,
-            provider: 'tianapi.com',
+            configured: true,
+            provider: 'frankfurter.dev',
             updateFrequency: 'Daily (Automatic)',
             baseCurrency: getBaseCurrency()
         });

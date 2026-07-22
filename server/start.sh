@@ -14,10 +14,6 @@ node db/init.js
 
 echo "[INFO] API key auth removed. Using session-based authentication."
 
-if [ -z "$TIANAPI_KEY" ]; then
-    echo "[INFO] TIANAPI_KEY not set. Exchange rate updates disabled."
-fi
-
 # Start the application server
 echo "[INFO] Starting server on port ${PORT:-3001}..."
 exec node server.js
