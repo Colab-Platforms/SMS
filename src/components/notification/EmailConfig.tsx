@@ -162,7 +162,9 @@ export const EmailConfig: React.FC<EmailConfigProps> = ({ onConfigChange }) => {
 
     try {
       setTesting(true);
+      console.log('Testing email notification with addresses:', nonBlankAddresses);
       const response = await notificationApi.testNotification('email');
+      console.log('Test email response:', response);
       const data = response as unknown as TestNotificationResponse;
       const succeeded = data?.results?.filter((r) => r.success).length ?? nonBlankAddresses.length;
       const total = data?.results?.length ?? nonBlankAddresses.length;

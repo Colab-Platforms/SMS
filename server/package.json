@@ -31,7 +31,6 @@
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.15",
     "prisma": "^6.19.3"
   },
   "devDependencies": {

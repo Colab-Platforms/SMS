@@ -1,33 +1,20 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 const config = require('../config');
 
 /**
- * Email notification service wrapper.
- * Handles SMTP configuration, sending transactional emails and health checks.
+ * Email notification service wrapper — sends via Resend's HTTPS API.
+ * Deliberately not raw SMTP: many hosts (Railway included) block or silently
+ * drop outbound SMTP connections, which left the old nodemailer transport
+ * hanging until a connection timeout on every send.
  */
 class EmailService {
   constructor(options = null) {
     this.config = options || config.getEmailConfig();
-    this.transporter = null;
-
-    if (this.config.enabled) {
-      this.transporter = nodemailer.createTransport({
-        host: this.config.host,
-        port: this.config.port,
-        secure: this.config.secure,
-        auth: this.config.authUser
-          ? {
-              user: this.config.authUser,
-              pass: this.config.authPass
-            }
-          : undefined,
-        tls: this.config.tlsOptions
-      });
-    }
+    this.baseUrl = 'https://api.resend.com/emails';
   }
 
   isConfigured() {
-    return Boolean(this.transporter);
+    return Boolean(this.config.enabled);
   }
 
   getDefaultFrom() {
@@ -35,7 +22,7 @@ class EmailService {
   }
 
   /**
-   * Send an email using configured transporter.
+   * Send an email via the Resend API.
    * @param {Object} mail - Mail payload
    * @param {string} mail.to - Recipient email address
    * @param {string} mail.subject - Subject line
@@ -49,18 +36,27 @@ class EmailService {
     }
 
     try {
-      const info = await this.transporter.sendMail({
-        from: this.getDefaultFrom(),
-        to,
-        subject,
-        html,
-        text
-      });
+      const response = await axios.post(
+        this.baseUrl,
+        { from: this.getDefaultFrom(), to, subject, html, text },
+        {
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
 
-      return { success: true, messageId: info.messageId };
+      return { success: true, messageId: response.data.id };
     } catch (error) {
-      console.error('Email notification failed:', error);
-      return { success: false, error: error.message };
+      const message = error.response
+        ? `Resend API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`
+        : error.request
+          ? 'Network error: unable to reach Resend API'
+          : error.message;
+      console.error('Email notification failed:', message);
+      return { success: false, error: message };
     }
   }
 

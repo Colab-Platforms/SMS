@@ -82,24 +82,16 @@ class Config {
     }
 
     /**
-     * Email notification configuration
+     * Email notification configuration (Resend API)
      * @returns {Object}
      */
     getEmailConfig() {
-        const host        = process.env.EMAIL_HOST;
-        const port        = parseInt(process.env.EMAIL_PORT, 10) || 587;
-        const secureEnv   = process.env.EMAIL_SECURE;
-        const secure      = secureEnv !== undefined ? secureEnv === 'true' : port === 465;
-        const authUser    = process.env.EMAIL_USER || process.env.EMAIL_USERNAME;
-        const authPass    = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS;
-        const from        = process.env.EMAIL_FROM || authUser || 'no-reply@example.com';
-        const rejectEnv   = process.env.EMAIL_TLS_REJECT_UNAUTHORIZED;
-        const rejectUnauthorized = rejectEnv === undefined ? true : rejectEnv === 'true';
-        const enabled     = Boolean(host && from && (authUser ? authPass : true));
+        const apiKey  = process.env.RESEND_API_KEY;
+        const from    = process.env.EMAIL_FROM || 'no-reply@example.com';
+        const enabled = Boolean(apiKey && from);
 
         return {
-            enabled, host, port, secure, from, authUser, authPass,
-            tlsOptions: { rejectUnauthorized },
+            enabled, apiKey, from,
             locale: process.env.EMAIL_LOCALE || 'zh-CN',
         };
     }
