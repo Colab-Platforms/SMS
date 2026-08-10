@@ -139,7 +139,7 @@ app.use(createSessionMiddleware());
         app.use(notFoundHandler);
         app.use(errorHandler);
 
-        app.listen(port, () => {
+        app.listen(port, "0.0.0.0", () => {
             console.log(`🚀 Subscription Management Server is running on http://localhost:${port}`);
             console.log(`📂 Frontend available at: http://localhost:${port}`);
             console.log(`🔧 API available at: http://localhost:${port}/api`);
