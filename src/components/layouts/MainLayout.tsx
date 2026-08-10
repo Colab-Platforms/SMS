@@ -58,7 +58,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         <div className="container flex h-16 items-center justify-between py-4 px-4 sm:px-6">
           <div className="flex items-center gap-6 md:gap-10">
             <Link to="/" className="flex items-center space-x-2">
-              <span className="font-bold text-lg sm:text-xl">ColabSubsManager</span>
+              <span className="font-bold text-lg sm:text-xl">Ayush-SubManager</span>
             </Link>
             <nav className="hidden md:flex items-center gap-1 sm:gap-2">
               {navLinks.map((link) => (
