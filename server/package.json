@@ -9,6 +9,7 @@
     "db:push": "npx prisma db push",
     "db:seed": "node prisma/seed.js",
     "db:init": "node db/init.js",
+    "org:create": "node scripts/create-organization.js",
     "db:studio": "npx prisma studio",
     "db:reset": "npx prisma migrate reset --force",
     "test": "jest --config tests/jest.config.js",

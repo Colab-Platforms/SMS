@@ -1,9 +1,10 @@
 const BaseRepository = require('../utils/BaseRepository');
 const logger = require('../utils/logger');
 const { SUPPORTED_CURRENCIES, isSupportedCurrency, getBaseCurrency } = require('../config/currencies');
+const { getOrgId } = require('../lib/orgContext');
 
 /**
- * Settings service — manages the singleton settings row (id = 1).
+ * Settings service — manages the current company's settings row (one row per organization).
  */
 class SettingsService extends BaseRepository {
     constructor(prisma) {
@@ -15,7 +16,7 @@ class SettingsService extends BaseRepository {
      */
     async getSettings() {
         try {
-            const settings = await this.findById(1);
+            const settings = await this.prisma.settings.findFirst({});
             return settings || this._getDefaultSettings();
         } catch (error) {
             logger.error('Failed to get settings:', error.message);
@@ -40,11 +41,12 @@ class SettingsService extends BaseRepository {
                 throw new Error('No update fields provided');
             }
 
+            const organizationId = getOrgId();
             const defaults = this._getDefaultSettings();
             return await this.prisma.settings.upsert({
-                where: { id: 1 },
+                where: { organization_id: organizationId },
                 update: updates,
-                create: { id: 1, ...defaults, ...updates },
+                create: { organization_id: organizationId, ...defaults, ...updates },
             });
         } catch (error) {
             logger.error('Failed to update settings:', error.message);
@@ -57,11 +59,12 @@ class SettingsService extends BaseRepository {
      */
     async resetSettings() {
         try {
+            const organizationId = getOrgId();
             const defaults = this._getDefaultSettings();
             const result = await this.prisma.settings.upsert({
-                where:  { id: 1 },
+                where:  { organization_id: organizationId },
                 update: defaults,
-                create: { id: 1, ...defaults },
+                create: { organization_id: organizationId, ...defaults },
             });
             logger.info('Settings reset to default values');
             return result;

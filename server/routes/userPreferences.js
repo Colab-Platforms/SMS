@@ -6,13 +6,12 @@ const userPreferenceService = new UserPreferenceService();
 
 /**
  * GET /api/user-preferences
- * Get user preferences
+ * Get the current company's preferences
  */
 router.get('/', async (req, res) => {
     try {
-        const userId = req.query.userId || 1; // Default to user 1 for single user system
-        const preferences = userPreferenceService.getUserPreferences(parseInt(userId));
-        
+        const preferences = await userPreferenceService.getUserPreferences();
+
         res.json({
             success: true,
             data: preferences
@@ -29,13 +28,12 @@ router.get('/', async (req, res) => {
 
 /**
  * PUT /api/user-preferences
- * Update user preferences
+ * Update the current company's preferences
  */
 router.put('/', async (req, res) => {
     try {
-        const userId = req.body.userId || 1; // Default to user 1 for single user system
         const preferences = req.body.preferences;
-        
+
         if (!preferences || typeof preferences !== 'object') {
             return res.status(400).json({
                 success: false,
@@ -43,10 +41,10 @@ router.put('/', async (req, res) => {
             });
         }
 
-        const success = userPreferenceService.updateUserPreferences(preferences, parseInt(userId));
-        
+        const success = await userPreferenceService.updateUserPreferences(preferences);
+
         if (success) {
-            const updatedPreferences = userPreferenceService.getUserPreferences(parseInt(userId));
+            const updatedPreferences = await userPreferenceService.getUserPreferences();
             res.json({
                 success: true,
                 message: 'User preferences updated successfully',
@@ -70,13 +68,12 @@ router.put('/', async (req, res) => {
 
 /**
  * GET /api/user-preferences/language
- * Get user language preference
+ * Get the current company's language preference
  */
 router.get('/language', async (req, res) => {
     try {
-        const userId = req.query.userId || 1;
-        const language = userPreferenceService.getUserLanguage(parseInt(userId));
-        
+        const language = await userPreferenceService.getUserLanguage();
+
         res.json({
             success: true,
             data: {
@@ -96,13 +93,12 @@ router.get('/language', async (req, res) => {
 
 /**
  * PUT /api/user-preferences/language
- * Set user language preference
+ * Set the current company's language preference
  */
 router.put('/language', async (req, res) => {
     try {
-        const userId = req.body.userId || 1;
         const { language } = req.body;
-        
+
         if (!language) {
             return res.status(400).json({
                 success: false,
@@ -119,8 +115,8 @@ router.put('/language', async (req, res) => {
             });
         }
 
-        const success = userPreferenceService.setUserLanguage(language, parseInt(userId));
-        
+        const success = await userPreferenceService.setUserLanguage(language);
+
         if (success) {
             res.json({
                 success: true,
@@ -153,7 +149,7 @@ router.put('/language', async (req, res) => {
 router.get('/supported-languages', async (req, res) => {
     try {
         const languages = userPreferenceService.getSupportedLanguages();
-        
+
         res.json({
             success: true,
             data: languages

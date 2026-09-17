@@ -6,9 +6,9 @@ class UserService extends BaseRepository {
         super(prisma, 'users');
     }
 
-    async getByUsername(username) {
+    async getByUsernameInOrg(organizationId, username) {
         try {
-            return await this.findOne({ username });
+            return await this.findOne({ organization_id: organizationId, username });
         } catch (error) {
             logger.error('Failed to fetch user by username:', error.message);
             throw error;
@@ -28,18 +28,18 @@ class UserService extends BaseRepository {
         }
     }
 
-    async updatePasswordHash(username, passwordHash) {
+    async updatePasswordHash(userId, passwordHash) {
         try {
-            return await this.updateWhere({ username }, { password_hash: passwordHash });
+            return await this.update(userId, { password_hash: passwordHash });
         } catch (error) {
             logger.error('Failed to update user password hash:', error.message);
             throw error;
         }
     }
 
-    async recordLastLogin(username) {
+    async recordLastLogin(userId) {
         try {
-            return await this.updateWhere({ username }, { last_login_at: new Date() });
+            return await this.update(userId, { last_login_at: new Date() });
         } catch (error) {
             logger.error('Failed to record last login:', error.message);
             throw error;

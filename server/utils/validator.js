@@ -469,6 +469,40 @@ function validateChannelConfig(data) {
 }
 
 /**
+ * 验证渠道凭证数据 (API key / from address) — separate from recipient config.
+ * Fields are intentionally optional here: a blank/omitted api_key or from
+ * means "keep whatever is already saved" (enforced server-side in
+ * NotificationService.setChannelCredentials), not a validation error.
+ * @param {string} channelType
+ * @param {Object} data - 凭证数据
+ * @returns {Validator}
+ */
+function validateChannelCredentials(channelType, data) {
+    const validator = createValidator();
+
+    validator
+        .required(channelType, 'channelType')
+        .string(channelType, 'channelType')
+        .enum(channelType, 'channelType', ['whatsapp', 'email']);
+
+    validator.string(data.api_key, 'api_key');
+
+    if (channelType === 'email') {
+        validator
+            .string(data.from, 'from')
+            .custom(data.from, 'from',
+                (value) => !value ||
+                    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ||
+                    /^.+<[^\s@]+@[^\s@]+\.[^\s@]+>$/.test(value),
+                'from must be a valid email address or "Name <email>" format'
+            )
+            .string(data.locale, 'locale');
+    }
+
+    return validator;
+}
+
+/**
  * 验证发送通知请求数据
  * @param {Object} data - 发送通知请求数据
  * @returns {Validator}
@@ -506,5 +540,6 @@ module.exports = {
     validateSubscriptionWithForeignKeys,
     validateNotificationSetting,
     validateChannelConfig,
+    validateChannelCredentials,
     validateSendNotification
 };

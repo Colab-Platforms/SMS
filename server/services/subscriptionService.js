@@ -4,6 +4,7 @@ const MonthlyCategorySummaryService = require('./monthlyCategorySummaryService')
 const NotificationService = require('./notificationService');
 const logger = require('../utils/logger');
 const { NotFoundError } = require('../middleware/errorHandler');
+const { getOrgId } = require('../lib/orgContext');
 
 class SubscriptionService extends BaseRepository {
     constructor(prisma) {
@@ -152,7 +153,7 @@ class SubscriptionService extends BaseRepository {
                 EXTRACT(YEAR  FROM payment_date)::int AS year,
                 EXTRACT(MONTH FROM payment_date)::int AS month
             FROM payment_history
-            WHERE subscription_id = ${id} AND status = 'succeeded'
+            WHERE subscription_id = ${id} AND status = 'succeeded' AND organization_id = ${getOrgId()}
         `;
 
         // Delete (cascades payment_history via FK)
@@ -178,6 +179,7 @@ class SubscriptionService extends BaseRepository {
      * Get subscription statistics.
      */
     async getSubscriptionStats() {
+        const organizationId = getOrgId();
         const [totalStats, categoryStats, billingCycleStats] = await Promise.all([
             this.prisma.$queryRaw`
                 SELECT
@@ -188,6 +190,7 @@ class SubscriptionService extends BaseRepository {
                     SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END)::float         AS total_active_amount,
                     AVG(CASE WHEN status = 'active' THEN amount END)::float                AS avg_active_amount
                 FROM subscriptions
+                WHERE organization_id = ${organizationId}
             `,
             this.prisma.$queryRaw`
                 SELECT
@@ -195,6 +198,7 @@ class SubscriptionService extends BaseRepository {
                     COUNT(*)::int                                              AS count,
                     SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END)::float AS total_amount
                 FROM subscriptions
+                WHERE organization_id = ${organizationId}
                 GROUP BY category_id
                 ORDER BY count DESC
             `,
@@ -204,6 +208,7 @@ class SubscriptionService extends BaseRepository {
                     COUNT(*)::int                                              AS count,
                     SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END)::float AS total_amount
                 FROM subscriptions
+                WHERE organization_id = ${organizationId}
                 GROUP BY billing_cycle
                 ORDER BY count DESC
             `,

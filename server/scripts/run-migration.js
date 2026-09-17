@@ -15,7 +15,6 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const prisma = require('../lib/prisma');
 const seed   = require('../prisma/seed');
-const { createAdminUserManager } = require('../config/authCredentials');
 
 async function runInit() {
     console.log('🚀 Running database initialisation (NeonDB / Prisma)...');
@@ -25,18 +24,14 @@ async function runInit() {
         await prisma.$queryRaw`SELECT 1`;
         console.log('✅ Database connection established');
 
-        // 2. Seed default data (idempotent)
+        // 2. Seed default data (idempotent — global reference lists only)
         await seed();
-
-        // 3. Bootstrap admin user
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
-        console.log('✅ Admin user ready');
 
         console.log('\n🎉 Initialisation completed successfully!');
         console.log('\n💡 If you have not already applied the schema, run:');
         console.log('   npx prisma migrate dev --name init   (development)');
         console.log('   npx prisma migrate deploy            (production / NeonDB)');
+        console.log('\n💡 To add a company, run: node server/scripts/create-organization.js --help');
 
         process.exit(0);
     } catch (error) {

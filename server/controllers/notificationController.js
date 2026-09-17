@@ -4,6 +4,7 @@ const responseHelper = require('../utils/responseHelper');
 const {
     validateNotificationSetting,
     validateChannelConfig,
+    validateChannelCredentials,
     validateSendNotification,
     createValidator
 } = require('../utils/validator');
@@ -11,7 +12,6 @@ const {
 class NotificationController {
     constructor(prisma) {
         this.notificationService = new NotificationService(prisma);
-        this.wasenderService     = new WasenderService();
     }
 
     /**
@@ -154,6 +154,43 @@ class NotificationController {
         } catch (error) {
             console.error('Error getting channel config:', error);
             responseHelper.error(res, 'Failed to get channel configuration', 500);
+        }
+    };
+
+    /**
+     * 保存渠道凭证 (API key / from address) — separate from recipient config above.
+     */
+    saveChannelCredentials = async (req, res) => {
+        try {
+            const channelType = req.params.channelType;
+            const validator = validateChannelCredentials(channelType, req.body || {});
+            if (validator.hasErrors()) {
+                return responseHelper.badRequest(res, validator.getErrors());
+            }
+
+            const result = await this.notificationService.setChannelCredentials(channelType, req.body || {});
+
+            if (result.success) {
+                responseHelper.success(res, result);
+            } else {
+                responseHelper.error(res, result.error || 'Failed to save credentials', 400);
+            }
+        } catch (error) {
+            console.error('Error saving channel credentials:', error);
+            responseHelper.error(res, 'Failed to save channel credentials', 500);
+        }
+    };
+
+    /**
+     * 获取渠道凭证状态（已脱敏，不包含真实密钥）
+     */
+    getChannelCredentialsStatus = async (req, res) => {
+        try {
+            const status = await this.notificationService.getChannelCredentialsStatus(req.params.channelType);
+            responseHelper.success(res, status);
+        } catch (error) {
+            console.error('Error getting channel credentials status:', error);
+            responseHelper.error(res, 'Failed to get channel credentials status', 500);
         }
     };
 
@@ -312,7 +349,7 @@ class NotificationController {
                 .required(phone_number, 'phone_number')
                 .string(phone_number, 'phone_number')
                 .custom(phone_number, 'phone_number',
-                    (value) => this.wasenderService.isValidPhoneNumber(value),
+                    (value) => WasenderService.isValidPhoneNumber(value),
                     'Phone number must be a valid E.164 number (e.g. +14155552671)'
                 );
 
@@ -332,7 +369,7 @@ class NotificationController {
      */
     getWhatsappSessionStatus = async (req, res) => {
         try {
-            const result = await this.wasenderService.getSessionStatus();
+            const result = await this.notificationService.getWhatsappSessionStatus();
 
             if (result.success) {
                 responseHelper.success(res, result);
@@ -348,9 +385,9 @@ class NotificationController {
     /**
      * 获取WhatsApp配置状态
      */
-    getWhatsappConfigStatus = (req, res) => {
+    getWhatsappConfigStatus = async (req, res) => {
         try {
-            const status = this.wasenderService.getConfigStatus();
+            const status = await this.notificationService.getWhatsappConfigStatus();
             responseHelper.success(res, status);
         } catch (error) {
             console.error('Error getting WhatsApp config status:', error);

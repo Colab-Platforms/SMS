@@ -3,6 +3,7 @@ const EmailService = require('./emailService');
 const prisma = require('../lib/prisma');
 const UserPreferenceService = require('./userPreferenceService');
 const { getTemplate } = require('../config/notificationTemplates');
+const { getOrgId } = require('../lib/orgContext');
 const {
     SUPPORTED_NOTIFICATION_TYPES,
     SUPPORTED_CHANNELS,
@@ -12,8 +13,6 @@ const {
 class NotificationService {
     constructor(prismaClient = null) {
         this.prisma                = prismaClient || prisma;
-        this.wasenderService       = new WasenderService();
-        this.emailService          = new EmailService();
         this.userPreferenceService = new UserPreferenceService(this.prisma);
     }
 
@@ -73,16 +72,19 @@ class NotificationService {
                 language: userLanguage,
             });
 
+            const wasenderService = channel === 'whatsapp' ? await this.getWasenderServiceForOrg() : null;
+            const emailService    = channel === 'email'    ? await this.getEmailServiceForOrg()    : null;
+
             const results = await Promise.all(recipients.map(async (recipient) => {
                 const sendTime = new Date();
                 let sendResult;
                 switch (channel) {
                     case 'whatsapp':
-                        sendResult = await this.wasenderService.sendMessage(recipient, messageContent);
+                        sendResult = await wasenderService.sendMessage(recipient, messageContent);
                         break;
                     case 'email':
                         sendResult = await this.sendEmailNotification({
-                            recipient, subscription, notificationType, subject, htmlContent: messageContent,
+                            recipient, subscription, notificationType, subject, htmlContent: messageContent, emailService,
                         });
                         break;
                     default:
@@ -119,7 +121,7 @@ class NotificationService {
 
     async getNotificationSettings(notificationType) {
         try {
-            return await this.prisma.notificationSetting.findUnique({
+            return await this.prisma.notificationSetting.findFirst({
                 where: { notification_type: notificationType },
             });
         } catch (error) {
@@ -157,8 +159,16 @@ class NotificationService {
 
     async getChannelConfig(channelType) {
         try {
-            const result = await this.prisma.notificationChannel.findUnique({
+            const result = await this.prisma.notificationChannel.findFirst({
                 where: { channel_type: channelType },
+                // credentials intentionally NOT selected — this response goes straight to the
+                // browser, so provider API keys must never appear here (see setChannelCredentials
+                // / getChannelCredentialsStatus for the credential-safe equivalents).
+                select: {
+                    id: true, organization_id: true, channel_type: true,
+                    channel_config: true, is_active: true, last_used_at: true,
+                    created_at: true, updated_at: true,
+                },
             });
             if (result) {
                 try {
@@ -172,6 +182,112 @@ class NotificationService {
             console.error('Error getting channel config:', error);
             return null;
         }
+    }
+
+    /**
+     * Read this company's stored provider credentials for a channel (parsed).
+     * Never expose the return value directly outside this service — only
+     * getChannelCredentialsStatus() returns a masked summary to callers.
+     */
+    async getChannelCredentials(channelType) {
+        try {
+            const row = await this.prisma.notificationChannel.findFirst({
+                where:  { channel_type: channelType },
+                select: { credentials: true },
+            });
+            if (!row?.credentials) return null;
+            try {
+                return JSON.parse(row.credentials);
+            } catch {
+                return null;
+            }
+        } catch (error) {
+            console.error('Error getting channel credentials:', error);
+            return null;
+        }
+    }
+
+    async getWasenderServiceForOrg() {
+        const creds = await this.getChannelCredentials('whatsapp');
+        return new WasenderService(creds?.api_key || null);
+    }
+
+    async getEmailServiceForOrg() {
+        const creds = await this.getChannelCredentials('email');
+        return new EmailService({
+            enabled: Boolean(creds?.api_key && creds?.from),
+            apiKey:  creds?.api_key || null,
+            from:    creds?.from || null,
+            locale:  creds?.locale || 'zh-CN',
+        });
+    }
+
+    /**
+     * Save this company's provider credentials for a channel. A blank/omitted
+     * field means "keep whatever is already saved" — lets an admin rotate
+     * just the from-address without re-entering the API key, for example.
+     */
+    async setChannelCredentials(channelType, input = {}) {
+        try {
+            if (!['whatsapp', 'email'].includes(channelType)) {
+                return { success: false, error: 'Unsupported channel type' };
+            }
+
+            const organizationId = getOrgId();
+            const existing = await this.getChannelCredentials(channelType);
+
+            let merged;
+            if (channelType === 'whatsapp') {
+                const apiKey = input.api_key?.trim() || existing?.api_key || null;
+                if (!apiKey) return { success: false, error: 'api_key is required' };
+                merged = { api_key: apiKey };
+            } else {
+                const apiKey = input.api_key?.trim() || existing?.api_key || null;
+                const from   = input.from?.trim()    || existing?.from    || null;
+                if (!apiKey || !from) return { success: false, error: 'api_key and from are required' };
+                merged = { api_key: apiKey, from, locale: input.locale?.trim() || existing?.locale || 'zh-CN' };
+            }
+
+            await this.prisma.notificationChannel.upsert({
+                where:  { organization_id_channel_type: { organization_id: organizationId, channel_type: channelType } },
+                update: { credentials: JSON.stringify(merged) },
+                create: {
+                    organization_id: organizationId,
+                    channel_type:    channelType,
+                    channel_config:  JSON.stringify({}),
+                    credentials:     JSON.stringify(merged),
+                    is_active:       false,
+                },
+            });
+            return { success: true, message: 'Credentials saved successfully' };
+        } catch (error) {
+            console.error('Error setting channel credentials:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Masked status for the frontend — never the raw key.
+     */
+    async getChannelCredentialsStatus(channelType) {
+        const creds = await this.getChannelCredentials(channelType);
+        if (channelType === 'whatsapp') {
+            return { configured: !!creds?.api_key, hasApiKey: !!creds?.api_key };
+        }
+        if (channelType === 'email') {
+            return { configured: !!(creds?.api_key && creds?.from), hasApiKey: !!creds?.api_key, from: creds?.from || null };
+        }
+        return { configured: false, hasApiKey: false };
+    }
+
+    async getWhatsappSessionStatus() {
+        const wasenderService = await this.getWasenderServiceForOrg();
+        return wasenderService.getSessionStatus();
+    }
+
+    async getWhatsappConfigStatus() {
+        const wasenderService = await this.getWasenderServiceForOrg();
+        return wasenderService.getConfigStatus();
     }
 
     renderMessageTemplate({ subscription, notificationType, channel, language = 'zh-CN' }) {
@@ -331,10 +447,11 @@ class NotificationService {
     async configureChannel(channelType, config) {
         try {
             const configJson = JSON.stringify(config);
+            const organizationId = getOrgId();
             await this.prisma.notificationChannel.upsert({
-                where:  { channel_type: channelType },
+                where:  { organization_id_channel_type: { organization_id: organizationId, channel_type: channelType } },
                 update: { channel_config: configJson, is_active: true },
-                create: { channel_type: channelType, channel_config: configJson, is_active: true },
+                create: { organization_id: organizationId, channel_type: channelType, channel_config: configJson, is_active: true },
             });
             return { success: true, message: 'Channel configured successfully' };
         } catch (error) {
@@ -352,8 +469,9 @@ class NotificationService {
                 const phoneNumbers = this.getRecipients(channelConfig, 'whatsapp');
                 if (phoneNumbers.length === 0) return { success: false, message: 'No recipients configured' };
 
+                const wasenderService = await this.getWasenderServiceForOrg();
                 const results = await Promise.all(
-                    phoneNumbers.map((phoneNumber) => this.wasenderService.sendTestMessage(phoneNumber))
+                    phoneNumbers.map((phoneNumber) => wasenderService.sendTestMessage(phoneNumber))
                 );
                 return {
                     success:      results.some((r) => r.success),
@@ -365,8 +483,9 @@ class NotificationService {
                 const addresses = this.getRecipients(channelConfig, 'email');
                 if (addresses.length === 0) return { success: false, message: 'No recipients configured' };
 
+                const emailService = await this.getEmailServiceForOrg();
                 const results = await Promise.all(
-                    addresses.map((address) => this.emailService.sendTestMail(address))
+                    addresses.map((address) => emailService.sendTestMail(address))
                 );
                 return {
                     success:      results.some((r) => r.success),
@@ -382,15 +501,15 @@ class NotificationService {
         }
     }
 
-    async sendEmailNotification({ recipient, subscription, notificationType, subject, htmlContent }) {
-        if (!this.emailService.isConfigured()) {
+    async sendEmailNotification({ recipient, subscription, notificationType, subject, htmlContent, emailService }) {
+        if (!emailService.isConfigured()) {
             return { success: false, error: 'Email service not configured' };
         }
         const finalSubject = subject || this.getDefaultSubject(subscription, notificationType);
         const plainText    = this.stripHtml(htmlContent);
         const htmlBody     = /[<>]/.test(htmlContent) ? htmlContent : `<p>${htmlContent}</p>`;
 
-        return this.emailService.sendMail({
+        return emailService.sendMail({
             to:      recipient,
             subject: finalSubject,
             html:    htmlBody,

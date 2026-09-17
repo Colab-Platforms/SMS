@@ -1,89 +1,29 @@
 const cron = require('node-cron');
 const NotificationService = require('./notificationService');
 const prisma = require('../lib/prisma');
+const { runWithOrg, getOrgId } = require('../lib/orgContext');
 
+/**
+ * Sends renewal/expiration notifications. Each company configures its own
+ * check time/timezone (SchedulerSettings), but there is a single shared
+ * sweep (not one cron job per company): every few minutes it loops over all
+ * active companies and, for each one, checks whether that company's
+ * configured time has arrived today — if so, it runs that company's
+ * notification check, at most once per day.
+ */
 class NotificationScheduler {
     constructor() {
         this.prisma              = prisma;
         this.notificationService = new NotificationService(this.prisma);
         this.job                 = null;
-        this.currentSchedule     = null;
+        // organizationId -> 'YYYY-MM-DD' it last ran for, so a company isn't
+        // processed more than once in the same day across ticks.
+        this.lastRunDateByOrg    = new Map();
     }
 
-    /**
-     * Start the notification scheduler.
-     */
     start() {
-        this.updateSchedule();
-        console.log('✅ Notification scheduler started');
-    }
-
-    /**
-     * Reload scheduler from DB settings.
-     */
-    async updateSchedule() {
-        try {
-            const settings = await this.getSchedulerSettings();
-
-            if (
-                this.currentSchedule &&
-                this.currentSchedule.time     === settings.notification_check_time &&
-                this.currentSchedule.timezone === settings.timezone &&
-                this.currentSchedule.enabled  === settings.is_enabled
-            ) {
-                return;
-            }
-
-            if (this.job) {
-                this.job.stop();
-                this.job = null;
-            }
-
-            if (!settings.is_enabled) {
-                console.log('⏸️ Notification scheduler is disabled');
-                this.currentSchedule = null;
-                return;
-            }
-
-            const [hour, minute]   = settings.notification_check_time.split(':');
-            const cronExpression   = `${minute} ${hour} * * *`;
-
-            this.job = cron.schedule(
-                cronExpression,
-                async () => {
-                    console.log(`🔔 Starting notification check at ${settings.notification_check_time}...`);
-                    await this.checkAndSendNotifications();
-                },
-                { scheduled: false, timezone: settings.timezone }
-            );
-
-            this.job.start();
-            this.currentSchedule = {
-                time:     settings.notification_check_time,
-                timezone: settings.timezone,
-                enabled:  settings.is_enabled,
-            };
-
-            console.log(`✅ Notification scheduler updated: ${settings.notification_check_time} (${settings.timezone})`);
-        } catch (error) {
-            console.error('Error updating notification schedule:', error);
-        }
-    }
-
-    /**
-     * Fetch scheduler settings from DB, with defaults.
-     */
-    async getSchedulerSettings() {
-        try {
-            const result = await this.prisma.schedulerSettings.findUnique({ where: { id: 1 } });
-            if (!result) {
-                return { notification_check_time: '09:00', timezone: 'Asia/Shanghai', is_enabled: true };
-            }
-            return result;
-        } catch (error) {
-            console.error('Error getting scheduler settings:', error);
-            return { notification_check_time: '09:00', timezone: 'Asia/Shanghai', is_enabled: true };
-        }
+        this.job = cron.schedule('*/5 * * * *', () => this.tick(), { scheduled: true });
+        console.log('✅ Notification scheduler started (checks every 5 minutes, per-company schedule)');
     }
 
     stop() {
@@ -91,6 +31,57 @@ class NotificationScheduler {
             this.job.stop();
             this.job = null;
             console.log('⏹️ Notification scheduler stopped');
+        }
+    }
+
+    /**
+     * One sweep across every active company.
+     */
+    async tick() {
+        try {
+            const organizations = await this.prisma.raw.organization.findMany({ where: { is_active: true } });
+            for (const org of organizations) {
+                await this.processOrgIfDue(org.id);
+            }
+        } catch (error) {
+            console.error('❌ Notification scheduler tick failed:', error);
+        }
+    }
+
+    async processOrgIfDue(organizationId) {
+        await runWithOrg(organizationId, async () => {
+            const settings = await this.getSchedulerSettings();
+            if (!settings.is_enabled) return;
+
+            const nowInTz  = new Date(new Date().toLocaleString('en-US', { timeZone: settings.timezone }));
+            const todayKey = `${nowInTz.getFullYear()}-${nowInTz.getMonth() + 1}-${nowInTz.getDate()}`;
+            if (this.lastRunDateByOrg.get(organizationId) === todayKey) return;
+
+            const [targetHour, targetMinute] = settings.notification_check_time.split(':').map(Number);
+            const currentMinutes = nowInTz.getHours() * 60 + nowInTz.getMinutes();
+            const targetMinutes  = targetHour * 60 + targetMinute;
+
+            if (currentMinutes >= targetMinutes) {
+                console.log(`🔔 Running notification check for organization ${organizationId} (configured ${settings.notification_check_time}, ${settings.timezone})`);
+                await this.checkAndSendNotifications();
+                this.lastRunDateByOrg.set(organizationId, todayKey);
+            }
+        });
+    }
+
+    /**
+     * Fetch this company's scheduler settings, with defaults if not yet set up.
+     */
+    async getSchedulerSettings() {
+        try {
+            const result = await this.prisma.schedulerSettings.findFirst({});
+            if (!result) {
+                return { notification_check_time: '09:00', timezone: 'Asia/Shanghai', is_enabled: true };
+            }
+            return result;
+        } catch (error) {
+            console.error('Error getting scheduler settings:', error);
+            return { notification_check_time: '09:00', timezone: 'Asia/Shanghai', is_enabled: true };
         }
     }
 
@@ -118,10 +109,10 @@ class NotificationScheduler {
 
     /**
      * Get subscriptions due for renewal reminder within the advance_days window.
-     * Uses PostgreSQL date arithmetic instead of SQLite date('now', '+N days').
      */
     async getRenewalNotifications() {
         try {
+            const organizationId = getOrgId();
             return await this.prisma.$queryRaw`
                 SELECT s.*,
                        ns.advance_days,
@@ -132,6 +123,8 @@ class NotificationScheduler {
                 CROSS JOIN notification_settings ns
                 WHERE ns.notification_type = 'renewal_reminder'
                     AND ns.is_enabled = true
+                    AND s.organization_id = ${organizationId}
+                    AND ns.organization_id = ${organizationId}
                     AND s.status = 'active'
                     AND s.next_billing_date BETWEEN
                         (CURRENT_DATE + INTERVAL '1 day') AND
@@ -141,6 +134,7 @@ class NotificationScheduler {
                         OR NOT EXISTS (
                             SELECT 1 FROM notification_history nh
                             WHERE nh.subscription_id = s.id
+                              AND nh.organization_id = ${organizationId}
                               AND nh.notification_type = 'renewal_reminder'
                               AND nh.status = 'sent'
                               AND nh.created_at >= (CURRENT_TIMESTAMP - (ns.advance_days || ' days')::INTERVAL)
@@ -155,10 +149,10 @@ class NotificationScheduler {
 
     /**
      * Get subscriptions that expired yesterday (send once on first day after expiry).
-     * Uses PostgreSQL CURRENT_DATE arithmetic instead of SQLite date('now', ...).
      */
     async getExpirationNotifications() {
         try {
+            const organizationId = getOrgId();
             return await this.prisma.$queryRaw`
                 SELECT s.*,
                        ns.notification_channels,
@@ -167,11 +161,14 @@ class NotificationScheduler {
                 CROSS JOIN notification_settings ns
                 WHERE ns.notification_type = 'expiration_warning'
                     AND ns.is_enabled = true
+                    AND s.organization_id = ${organizationId}
+                    AND ns.organization_id = ${organizationId}
                     AND s.status = 'active'
                     AND s.next_billing_date = (CURRENT_DATE - INTERVAL '1 day')
                     AND NOT EXISTS (
                         SELECT 1 FROM notification_history nh
                         WHERE nh.subscription_id = s.id
+                          AND nh.organization_id = ${organizationId}
                           AND nh.notification_type = 'expiration_warning'
                           AND nh.status = 'sent'
                           AND nh.created_at >= CURRENT_DATE::timestamp
@@ -201,32 +198,35 @@ class NotificationScheduler {
         }
     }
 
+    /**
+     * Manually trigger a check for the current request's company only.
+     */
     async triggerCheck() {
         console.log('🔔 Manually triggering notification check...');
         await this.checkAndSendNotifications();
     }
 
     /**
-     * Update scheduler settings in DB.
+     * Update this company's scheduler settings.
      */
     async updateSchedulerSettings(settings) {
         try {
+            const organizationId = getOrgId();
             await this.prisma.schedulerSettings.upsert({
-                where:  { id: 1 },
+                where:  { organization_id: organizationId },
                 update: {
                     notification_check_time: settings.notification_check_time,
                     timezone:                settings.timezone,
                     is_enabled:              Boolean(settings.is_enabled),
                 },
                 create: {
-                    id:                      1,
+                    organization_id:         organizationId,
                     notification_check_time: settings.notification_check_time,
                     timezone:                settings.timezone,
                     is_enabled:              Boolean(settings.is_enabled),
                 },
             });
 
-            await this.updateSchedule();
             return { success: true };
         } catch (error) {
             console.error('Error updating scheduler settings:', error);
@@ -237,7 +237,6 @@ class NotificationScheduler {
     getStatus() {
         return {
             running: this.job !== null,
-            nextRun: this.job ? this.job.running : false,
         };
     }
 

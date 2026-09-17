@@ -1,5 +1,4 @@
 const prisma = require('../lib/prisma');
-const { getBaseCurrency } = require('../config/currencies');
 
 /**
  * Default categories for seeding
@@ -48,40 +47,18 @@ const DEFAULT_EXCHANGE_RATES = [
 ];
 
 /**
- * Default per-notification-type settings (ported from the old SQLite migration —
- * previously inserted via migration_002, never carried over to the Prisma seed).
- */
-const DEFAULT_NOTIFICATION_SETTINGS = [
-    { notification_type: 'renewal_reminder',    is_enabled: true, advance_days: 7, repeat_notification: true,  notification_channels: '["whatsapp"]' },
-    { notification_type: 'expiration_warning',  is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
-    { notification_type: 'renewal_success',     is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
-    { notification_type: 'renewal_failure',     is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
-    { notification_type: 'subscription_change', is_enabled: true, advance_days: 0, repeat_notification: false, notification_channels: '["whatsapp"]' },
-];
-
-/**
- * Seed default data into the PostgreSQL database via Prisma.
+ * Seed global reference data into the PostgreSQL database via Prisma.
  * Uses upsert so it is idempotent and safe to run multiple times.
+ *
+ * This only seeds data shared across ALL companies (categories, payment
+ * methods, exchange rates). Per-company data (settings, scheduler settings,
+ * notification settings, the first admin login) is created by
+ * server/scripts/create-organization.js when a new company is provisioned.
  */
 async function seed() {
     console.log('🌱 Starting database seeding...');
 
     try {
-        // Seed settings (singleton row, id=1)
-        const baseCurrency = getBaseCurrency();
-        await prisma.settings.upsert({
-            where: { id: 1 },
-            update: {},
-            create: {
-                id: 1,
-                currency: baseCurrency,
-                theme: 'system',
-                show_original_currency: true,
-                language: 'zh_CN',
-            },
-        });
-        console.log('✅ Settings seeded');
-
         // Seed categories
         for (const category of DEFAULT_CATEGORIES) {
             await prisma.category.upsert({
@@ -117,29 +94,6 @@ async function seed() {
             });
         }
         console.log(`✅ ${DEFAULT_EXCHANGE_RATES.length} exchange rates seeded`);
-
-        // Seed notification settings (one row per notification type)
-        for (const setting of DEFAULT_NOTIFICATION_SETTINGS) {
-            await prisma.notificationSetting.upsert({
-                where: { notification_type: setting.notification_type },
-                update: {},
-                create: setting,
-            });
-        }
-        console.log(`✅ ${DEFAULT_NOTIFICATION_SETTINGS.length} notification settings seeded`);
-
-        // Seed scheduler settings (singleton row, id=1)
-        await prisma.schedulerSettings.upsert({
-            where: { id: 1 },
-            update: {},
-            create: {
-                id: 1,
-                notification_check_time: '09:00',
-                timezone: 'Asia/Shanghai',
-                is_enabled: true,
-            },
-        });
-        console.log('✅ Scheduler settings seeded');
 
         console.log('🎉 Database seeding completed successfully!');
     } catch (error) {

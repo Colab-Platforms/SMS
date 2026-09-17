@@ -6,8 +6,8 @@ const axios = require('axios');
  * (connected via QR code on the WasenderAPI dashboard — external, one-time, manual).
  */
 class WasenderService {
-    constructor() {
-        this.apiKey = process.env.WASENDER_API_KEY;
+    constructor(apiKey = null) {
+        this.apiKey = apiKey;
         this.apiBaseUrl = 'https://www.wasenderapi.com/api';
         this.client = axios.create({
             timeout: 10000,
@@ -101,7 +101,7 @@ If you have any questions, please contact your administrator.`;
      * @param {string} phoneNumber
      * @returns {boolean}
      */
-    isValidPhoneNumber(phoneNumber) {
+    static isValidPhoneNumber(phoneNumber) {
         return typeof phoneNumber === 'string' && /^\+[1-9]\d{6,14}$/.test(phoneNumber);
     }
 

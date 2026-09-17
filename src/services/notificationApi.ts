@@ -63,6 +63,12 @@ export interface WhatsappConfigStatus {
   isPlaceholder: boolean;
 }
 
+export interface ChannelCredentialsStatus {
+  configured: boolean;
+  hasApiKey: boolean;
+  from?: string | null;
+}
+
 export const notificationApi = {
   // 获取通知设置
   getSettings: () =>
@@ -143,5 +149,13 @@ export const notificationApi = {
 
   // 获取WhatsApp配置状态
   getWhatsappConfigStatus: () =>
-    apiClient.get<WhatsappConfigStatus>(`/protected/notifications/whatsapp/config-status`)
+    apiClient.get<WhatsappConfigStatus>(`/protected/notifications/whatsapp/config-status`),
+
+  // 保存渠道凭证 (API key / from address)
+  saveChannelCredentials: (channelType: string, credentials: { api_key?: string; from?: string; locale?: string }) =>
+    apiClient.put<{ message: string }>(`/protected/notifications/channels/${channelType}/credentials`, credentials),
+
+  // 获取渠道凭证状态（已脱敏）
+  getChannelCredentialsStatus: (channelType: string) =>
+    apiClient.get<ChannelCredentialsStatus>(`/protected/notifications/channels/${channelType}/credentials/status`)
 };

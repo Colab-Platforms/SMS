@@ -9,7 +9,7 @@ interface AuthState {
   error: string | null
   initialized: boolean
   fetchMe: () => Promise<void>
-  login: (username: string, password: string) => Promise<boolean>
+  login: (organizationId: number, username: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
   changePassword: (currentPassword: string, newPassword: string, confirmPassword?: string) => Promise<{ ok: boolean; message?: string; error?: string; code?: string }>
 }
@@ -30,10 +30,10 @@ export const useAuthStore = create<AuthState>()(
           set({ user: null, isLoading: false, initialized: true })
         }
       },
-      login: async (username, password) => {
+      login: async (organizationId, username, password) => {
         set({ isLoading: true, error: null })
         try {
-          await authApi.login(username, password)
+          await authApi.login(organizationId, username, password)
           const data = await authApi.me()
           set({ user: data.user, isLoading: false, initialized: true })
           return true

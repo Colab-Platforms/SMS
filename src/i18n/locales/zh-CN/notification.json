@@ -177,5 +177,16 @@
     "saveError": "保存邮件配置失败",
     "active": "邮件渠道已启用",
     "valid": "邮箱地址有效"
+  },
+  "credentials": {
+    "title": "服务商凭证",
+    "apiKeyLabel": "API 密钥",
+    "apiKeyPlaceholder": "请输入 API 密钥",
+    "apiKeyHelp": "这是贵公司自己账户的密钥——留空则保留当前已保存的密钥不变。",
+    "fromLabel": "发件地址",
+    "fromPlaceholder": "notifications@yourdomain.com",
+    "saveCredentials": "保存凭证",
+    "credentialsSaved": "凭证已保存",
+    "credentialsSaveError": "保存凭证失败"
   }
 }

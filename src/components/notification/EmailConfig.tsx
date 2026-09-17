@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useTranslation } from 'react-i18next';
 import { Mail, Loader2, Send, Save, Settings, Check, X, Plus, Trash2 } from 'lucide-react';
-import { notificationApi } from '@/services/notificationApi';
+import { notificationApi, ChannelCredentialsStatus } from '@/services/notificationApi';
 import { useToast } from '@/hooks/use-toast';
 import { useNotificationStore } from '@/store/notificationStore';
 
@@ -66,6 +66,11 @@ export const EmailConfig: React.FC<EmailConfigProps> = ({ onConfigChange }) => {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [isActive, setIsActive] = useState<boolean>(false);
+  const [credentialsStatus, setCredentialsStatus] = useState<ChannelCredentialsStatus | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [fromInput, setFromInput] = useState('');
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const [credentialsJustSaved, setCredentialsJustSaved] = useState(false);
 
   const rowValidity = useMemo(
     () => rows.map((row) => !row.value.trim() || emailRegex.test(row.value.trim())),
@@ -99,9 +104,49 @@ export const EmailConfig: React.FC<EmailConfigProps> = ({ onConfigChange }) => {
     }
   }, [setEmailConfig, setChannelValidated]);
 
+  const loadCredentialsStatus = useCallback(async () => {
+    try {
+      const status = await notificationApi.getChannelCredentialsStatus('email');
+      const parsed = (status as unknown as ChannelCredentialsStatus) || { configured: false, hasApiKey: false, from: null };
+      setCredentialsStatus(parsed);
+      setFromInput(parsed.from || '');
+    } catch (error) {
+      console.error('Failed to load email credentials status:', error);
+      setCredentialsStatus({ configured: false, hasApiKey: false, from: null });
+    }
+  }, []);
+
   useEffect(() => {
     loadConfig();
-  }, [loadConfig]);
+    loadCredentialsStatus();
+  }, [loadConfig, loadCredentialsStatus]);
+
+  const handleSaveCredentials = async () => {
+    if (!apiKeyInput.trim() && !fromInput.trim()) return;
+
+    try {
+      setSavingCredentials(true);
+      await notificationApi.saveChannelCredentials('email', {
+        api_key: apiKeyInput.trim() || undefined,
+        from: fromInput.trim() || undefined,
+      });
+      setApiKeyInput('');
+      setCredentialsJustSaved(true);
+      await loadCredentialsStatus();
+
+      toast({
+        title: t('credentials.credentialsSaved'),
+      });
+    } catch (error) {
+      console.error('Failed to save email credentials:', error);
+      toast({
+        title: t('credentials.credentialsSaveError'),
+        variant: 'destructive'
+      });
+    } finally {
+      setSavingCredentials(false);
+    }
+  };
 
   const handleRowChange = (id: string, value: string) => {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, value } : row)));
@@ -213,6 +258,49 @@ export const EmailConfig: React.FC<EmailConfigProps> = ({ onConfigChange }) => {
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Provider credentials (Resend API key + from address) — separate from recipients below */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>{t('credentials.title')}</Label>
+            {credentialsStatus?.configured ? (
+              <Badge variant="default" className="bg-green-500">{t('configured')}</Badge>
+            ) : (
+              <Badge variant="secondary">{t('notConfigured')}</Badge>
+            )}
+          </div>
+          <Input
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => {
+              setApiKeyInput(e.target.value);
+              setCredentialsJustSaved(false);
+            }}
+            placeholder={t('credentials.apiKeyPlaceholder')}
+            autoComplete="off"
+          />
+          <Input
+            type="text"
+            value={fromInput}
+            onChange={(e) => {
+              setFromInput(e.target.value);
+              setCredentialsJustSaved(false);
+            }}
+            placeholder={t('credentials.fromPlaceholder')}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSaveCredentials}
+            disabled={savingCredentials || credentialsJustSaved || (!apiKeyInput.trim() && !fromInput.trim())}
+          >
+            {savingCredentials ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {t('credentials.saveCredentials')}
+          </Button>
+          <p className="text-xs text-muted-foreground whitespace-pre-line">
+            {t('credentials.apiKeyHelp')}
+          </p>
+        </div>
 
         <div className="space-y-2">
           <Label>{t('emailConfig.addresses')}</Label>

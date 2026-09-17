@@ -58,7 +58,9 @@ export function MainLayout({ children }: MainLayoutProps) {
         <div className="container flex h-16 items-center justify-between py-4 px-4 sm:px-6">
           <div className="flex items-center gap-6 md:gap-10">
             <Link to="/" className="flex items-center space-x-2">
-              <span className="font-bold text-lg sm:text-xl">Ayush-SubManager</span>
+              <span className="font-bold text-lg sm:text-xl">
+                {user ? user.organizationName : 'Subscription Management System'}
+              </span>
             </Link>
             <nav className="hidden md:flex items-center gap-1 sm:gap-2">
               {navLinks.map((link) => (
@@ -83,6 +85,9 @@ export function MainLayout({ children }: MainLayoutProps) {
             <ModeToggle />
             {user && (
               <>
+                <span className="hidden md:inline text-sm text-muted-foreground">
+                  {user.organizationName}
+                </span>
                 <UIButton
                   variant="ghost"
                   size="sm"

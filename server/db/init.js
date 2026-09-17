@@ -3,11 +3,12 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const prisma  = require('../lib/prisma');
 const seed    = require('../prisma/seed');
-const { createAdminUserManager } = require('../config/authCredentials');
 
 /**
- * Initialize the database — runs seed data and bootstraps the admin user.
+ * Initialize the database — runs seed data (global reference lists only).
  * Schema is managed externally by: npx prisma migrate deploy
+ * Companies (organizations) and their admin logins are created separately via
+ * `node server/scripts/create-organization.js`.
  */
 async function initializeDatabase() {
     console.log('🔄 Initializing database...');
@@ -21,13 +22,9 @@ async function initializeDatabase() {
         // Seed default data (idempotent — safe to run multiple times)
         await seed();
 
-        // Bootstrap admin user
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
-        console.log('✅ Admin user bootstrapped successfully.');
-
         console.log('🎉 Database initialization completed successfully!');
         console.log('\n📊 Database is ready with all required tables and data.');
+        console.log('💡 To add a company, run: node server/scripts/create-organization.js --help');
 
         return prisma;
     } catch (error) {

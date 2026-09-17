@@ -26,6 +26,10 @@ function createProtectedNotificationRoutes(db) {
     router.post('/channels', notificationController.configureChannel);
     router.get('/channels/:channelType', notificationController.getChannelConfig);
 
+    // 渠道凭证路由 (provider API keys — separate from recipient config above)
+    router.put('/channels/:channelType/credentials', notificationController.saveChannelCredentials);
+    router.get('/channels/:channelType/credentials/status', notificationController.getChannelCredentialsStatus);
+
     // 通知操作路由
     router.post('/send', notificationController.sendNotification);
     router.post('/test', notificationController.testNotification);

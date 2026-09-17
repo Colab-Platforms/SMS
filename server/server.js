@@ -11,6 +11,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { initializeDatabase } = require('./config/database');
 const { createSessionMiddleware }   = require('./middleware/session');
 const { requireLogin }              = require('./middleware/requireLogin');
+const { attachOrgContext }          = require('./middleware/orgContext');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { createSubscriptionRoutes, createProtectedSubscriptionRoutes } = require('./routes/subscriptions');
 const { createSubscriptionManagementRoutes } = require('./routes/subscriptionManagement');
@@ -79,9 +80,12 @@ app.use(createSessionMiddleware());
         // Auth routes (no login required)
         app.use('/api/auth', createAuthRoutes(prisma));
 
-        // Apply session auth
+        // Apply session auth, then attach the current company's context so
+        // every downstream Prisma query is automatically scoped to it.
         apiRouter.use(requireLogin);
+        apiRouter.use(attachOrgContext);
         protectedApiRouter.use(requireLogin);
+        protectedApiRouter.use(attachOrgContext);
 
         // Register route modules — all receive `prisma` instead of raw `db`
         apiRouter.use('/subscriptions', createSubscriptionRoutes(prisma));

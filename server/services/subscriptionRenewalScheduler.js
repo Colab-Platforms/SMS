@@ -1,13 +1,18 @@
 const cron = require('node-cron');
 const logger = require('../utils/logger');
 const SubscriptionManagementService = require('./subscriptionManagementService');
+const { runWithOrg } = require('../lib/orgContext');
 
 /**
  * 订阅续费定时任务服务
  * 负责处理自动续费和过期订阅的定时检查
+ *
+ * Runs once daily, looping over every active company and processing each
+ * one's subscriptions inside that company's own org context.
  */
 class SubscriptionRenewalScheduler {
     constructor(db) {
+        this.db = db; // Organization isn't company-scoped, so this works with or without an active org context
         this.subscriptionManagementService = new SubscriptionManagementService(db);
         this.isRunning = false;
     }
@@ -50,35 +55,43 @@ class SubscriptionRenewalScheduler {
     }
 
     /**
-     * 执行日常维护任务
+     * 执行日常维护任务 — loops over every active company.
      */
     async runDailyMaintenance() {
         try {
             logger.info('Running daily subscription maintenance...');
 
-            // 处理自动续费
-            const autoRenewalResult = await this.subscriptionManagementService.processAutoRenewals();
-            
-            // 处理过期订阅
-            const expiredResult = await this.subscriptionManagementService.processExpiredSubscriptions();
+            const organizations = await this.db.organization.findMany({ where: { is_active: true } });
 
-            // 记录结果
-            const totalProcessed = autoRenewalResult.processed + expiredResult.processed;
-            const totalErrors = autoRenewalResult.errors + expiredResult.errors;
+            let totalProcessed = 0;
+            let totalErrors    = 0;
+            const perOrgResults = [];
 
-            logger.info(`Daily maintenance completed: ${totalProcessed} subscriptions processed, ${totalErrors} errors`);
+            for (const { id: organizationId } of organizations) {
+                const result = await runWithOrg(organizationId, async () => {
+                    const autoRenewalResult = await this.subscriptionManagementService.processAutoRenewals();
+                    const expiredResult     = await this.subscriptionManagementService.processExpiredSubscriptions();
+                    return { organizationId, autoRenewalResult, expiredResult };
+                });
 
-            if (autoRenewalResult.processed > 0) {
-                logger.info(`Auto-renewed ${autoRenewalResult.processed} subscription(s)`);
+                totalProcessed += result.autoRenewalResult.processed + result.expiredResult.processed;
+                totalErrors    += result.autoRenewalResult.errors    + result.expiredResult.errors;
+
+                if (result.autoRenewalResult.processed > 0) {
+                    logger.info(`[org ${organizationId}] Auto-renewed ${result.autoRenewalResult.processed} subscription(s)`);
+                }
+                if (result.expiredResult.processed > 0) {
+                    logger.info(`[org ${organizationId}] Cancelled ${result.expiredResult.processed} expired subscription(s)`);
+                }
+
+                perOrgResults.push(result);
             }
-            if (expiredResult.processed > 0) {
-                logger.info(`Cancelled ${expiredResult.processed} expired subscription(s)`);
-            }
+
+            logger.info(`Daily maintenance completed for ${organizations.length} organization(s): ${totalProcessed} subscriptions processed, ${totalErrors} errors`);
 
             return {
                 success: true,
-                autoRenewalResult,
-                expiredResult,
+                perOrgResults,
                 totalProcessed,
                 totalErrors
             };

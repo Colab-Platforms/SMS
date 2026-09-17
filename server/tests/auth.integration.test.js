@@ -1,21 +1,20 @@
 /**
- * Auth Integration Tests — Prisma + NeonDB version.
+ * Auth Integration Tests — organization-scoped login.
  *
  * These tests use the real Prisma client connected to a test database.
  * Set DATABASE_URL to a test/shadow Neon branch in your CI environment.
  *
- * Each test cleans up the users table before running to ensure isolation.
+ * Each test creates its own organization + user and cleans them up afterwards.
  */
 
 const express = require('express');
 const session = require('express-session');
 const request = require('supertest');
+const bcrypt = require('bcryptjs');
 
 const { PrismaClient } = require('@prisma/client');
 const createAuthRoutes = require('../routes/auth');
-const { createAdminUserManager } = require('../config/authCredentials');
 
-// Use a dedicated test prisma client (inherits DATABASE_URL from env)
 let prisma;
 
 function buildApp(prismaClient) {
@@ -26,107 +25,106 @@ function buildApp(prismaClient) {
     return app;
 }
 
-describe('Admin authentication', () => {
-    const originalEnv = {
-        ADMIN_USERNAME:      process.env.ADMIN_USERNAME,
-        ADMIN_PASSWORD:      process.env.ADMIN_PASSWORD,
-        ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH,
-    };
+async function createTestOrgAndUser(prismaClient, { orgName, username, password }) {
+    const organization = await prismaClient.organization.create({
+        data: { name: orgName, slug: orgName.toLowerCase().replace(/\s+/g, '-'), is_active: true },
+    });
+    const user = await prismaClient.user.create({
+        data: {
+            organization_id: organization.id,
+            username,
+            password_hash: bcrypt.hashSync(password, 12),
+            role: 'admin',
+        },
+    });
+    return { organization, user };
+}
 
+describe('Organization-scoped authentication', () => {
     beforeAll(async () => {
         prisma = new PrismaClient();
+        prisma.raw = prisma; // routes/auth.js expects db.raw for the pre-login lookup
         await prisma.$connect();
     });
 
     afterAll(async () => {
-        // Restore env vars
-        if (originalEnv.ADMIN_USERNAME === undefined) delete process.env.ADMIN_USERNAME;
-        else process.env.ADMIN_USERNAME = originalEnv.ADMIN_USERNAME;
-
-        if (originalEnv.ADMIN_PASSWORD === undefined) delete process.env.ADMIN_PASSWORD;
-        else process.env.ADMIN_PASSWORD = originalEnv.ADMIN_PASSWORD;
-
-        if (originalEnv.ADMIN_PASSWORD_HASH === undefined) delete process.env.ADMIN_PASSWORD_HASH;
-        else process.env.ADMIN_PASSWORD_HASH = originalEnv.ADMIN_PASSWORD_HASH;
-
         await prisma.$disconnect();
     });
 
-    beforeEach(async () => {
-        process.env.ADMIN_USERNAME = 'admin';
-        process.env.ADMIN_PASSWORD = 'super-secret';
-        delete process.env.ADMIN_PASSWORD_HASH;
-
-        // Clean users table before each test for isolation
-        await prisma.user.deleteMany({ where: { username: 'admin' } });
+    afterEach(async () => {
+        await prisma.user.deleteMany({ where: { organization: { slug: { startsWith: 'test-org' } } } });
+        await prisma.organization.deleteMany({ where: { slug: { startsWith: 'test-org' } } });
     });
 
     // -------------------------------------------------------------------------
 
-    test('bootstrapDefaultAdmin seeds admin user with hashed password', async () => {
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
+    test('login succeeds with correct organization, username and password, and updates last_login_at', async () => {
+        const { organization, user } = await createTestOrgAndUser(prisma, {
+            orgName: 'Test Org A', username: 'admin', password: 'super-secret',
+        });
 
-        const admin = await prisma.user.findUnique({ where: { username: 'admin' } });
-        expect(admin).toBeDefined();
-        expect(admin.role).toBe('admin');
-        expect(admin.password_hash).toBeDefined();
-        // Hash should not be the plain text password
-        expect(admin.password_hash).not.toEqual('super-secret');
-    });
-
-    // -------------------------------------------------------------------------
-
-    test('login succeeds with seeded credentials and updates last_login_at', async () => {
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
-
-        const app  = buildApp(prisma);
+        const app = buildApp(prisma);
         const loginResponse = await request(app)
             .post('/auth/login')
-            .send({ username: 'admin', password: 'super-secret' });
+            .send({ organizationId: organization.id, username: 'admin', password: 'super-secret' });
 
         expect(loginResponse.status).toBe(200);
 
-        const record = await prisma.user.findUnique({ where: { username: 'admin' } });
+        const record = await prisma.user.findUnique({ where: { id: user.id } });
         expect(record.last_login_at).toBeTruthy();
     });
 
     // -------------------------------------------------------------------------
 
-    test('password rotation invalidates old credentials and accepts new ones', async () => {
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
+    test('login fails when the username exists in a different organization', async () => {
+        const { organization: orgA } = await createTestOrgAndUser(prisma, {
+            orgName: 'Test Org A', username: 'admin', password: 'super-secret',
+        });
+        const { organization: orgB } = await createTestOrgAndUser(prisma, {
+            orgName: 'Test Org B', username: 'admin', password: 'different-secret',
+        });
 
         const app = buildApp(prisma);
 
-        // Old password works
-        const oldLoginResp = await request(app)
+        // Org A's id with Org B's password should fail — usernames aren't globally unique.
+        const crossOrgLogin = await request(app)
             .post('/auth/login')
-            .send({ username: 'admin', password: 'super-secret' });
-        expect(oldLoginResp.status).toBe(200);
+            .send({ organizationId: orgA.id, username: 'admin', password: 'different-secret' });
+        expect(crossOrgLogin.status).toBe(401);
 
-        // Rotate password
-        await adminManager.setAdminPassword({ password: 'new-secret' });
-
-        // Old password rejected
-        const failedLogin = await request(app)
+        // Sanity check: each org's own credentials still work independently.
+        const orgALogin = await request(app)
             .post('/auth/login')
-            .send({ username: 'admin', password: 'super-secret' });
-        expect(failedLogin.status).toBe(401);
+            .send({ organizationId: orgA.id, username: 'admin', password: 'super-secret' });
+        expect(orgALogin.status).toBe(200);
 
-        // New password accepted
-        const successLogin = await request(app)
+        const orgBLogin = await request(app)
             .post('/auth/login')
-            .send({ username: 'admin', password: 'new-secret' });
-        expect(successLogin.status).toBe(200);
+            .send({ organizationId: orgB.id, username: 'admin', password: 'different-secret' });
+        expect(orgBLogin.status).toBe(200);
+    });
+
+    // -------------------------------------------------------------------------
+
+    test('login fails with wrong password', async () => {
+        const { organization } = await createTestOrgAndUser(prisma, {
+            orgName: 'Test Org A', username: 'admin', password: 'super-secret',
+        });
+
+        const app = buildApp(prisma);
+        const response = await request(app)
+            .post('/auth/login')
+            .send({ organizationId: organization.id, username: 'admin', password: 'wrong-password' });
+
+        expect(response.status).toBe(401);
     });
 
     // -------------------------------------------------------------------------
 
     test('authenticated change-password endpoint rotates credentials', async () => {
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
+        const { organization } = await createTestOrgAndUser(prisma, {
+            orgName: 'Test Org A', username: 'admin', password: 'super-secret',
+        });
 
         const app   = buildApp(prisma);
         const agent = request.agent(app);
@@ -134,7 +132,7 @@ describe('Admin authentication', () => {
         // Login
         const loginResp = await agent
             .post('/auth/login')
-            .send({ username: 'admin', password: 'super-secret' });
+            .send({ organizationId: organization.id, username: 'admin', password: 'super-secret' });
         expect(loginResp.status).toBe(200);
 
         // Change password
@@ -146,13 +144,27 @@ describe('Admin authentication', () => {
         // Old password rejected
         const oldPwLogin = await agent
             .post('/auth/login')
-            .send({ username: 'admin', password: 'super-secret' });
+            .send({ organizationId: organization.id, username: 'admin', password: 'super-secret' });
         expect(oldPwLogin.status).toBe(401);
 
         // New password accepted
         const newPwLogin = await agent
             .post('/auth/login')
-            .send({ username: 'admin', password: 'another-secret1' });
+            .send({ organizationId: organization.id, username: 'admin', password: 'another-secret1' });
         expect(newPwLogin.status).toBe(200);
+    });
+
+    // -------------------------------------------------------------------------
+
+    test('GET /auth/organizations lists active organizations without requiring login', async () => {
+        const { organization } = await createTestOrgAndUser(prisma, {
+            orgName: 'Test Org A', username: 'admin', password: 'super-secret',
+        });
+
+        const app = buildApp(prisma);
+        const response = await request(app).get('/auth/organizations');
+
+        expect(response.status).toBe(200);
+        expect(response.body.organizations.some((o) => o.id === organization.id)).toBe(true);
     });
 });

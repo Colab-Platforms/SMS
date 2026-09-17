@@ -1,10 +1,10 @@
 const prisma = require('../lib/prisma');
-const { createAdminUserManager } = require('./authCredentials');
 
 /**
- * Initialize the database connection and bootstrap the admin user.
+ * Initialize the database connection.
  * With Prisma + NeonDB the schema is managed by `prisma migrate`.
- * This function only handles application-level bootstrapping (admin user seeding).
+ * Organizations and their admin users are provisioned via
+ * `server/scripts/create-organization.js`, not bootstrapped at startup.
  *
  * @returns {Promise<import('@prisma/client').PrismaClient>}
  */
@@ -13,11 +13,6 @@ async function initializeDatabase() {
         // Verify the connection by running a lightweight query
         await prisma.$queryRaw`SELECT 1`;
         console.log('✅ Database connection established (NeonDB / PostgreSQL)');
-
-        // Bootstrap the default admin user
-        const adminManager = createAdminUserManager(prisma);
-        await adminManager.bootstrapDefaultAdmin();
-        console.log('✅ Admin user bootstrapped successfully.');
 
         return prisma;
     } catch (error) {

@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const { getBaseCurrency } = require('../config/currencies');
+const { getOrgId } = require('../lib/orgContext');
 
 /**
  * Monthly Category Summary Service
@@ -123,7 +124,7 @@ class MonthlyCategorySummaryService {
                     EXTRACT(YEAR  FROM payment_date)::int AS year,
                     EXTRACT(MONTH FROM payment_date)::int AS month
                 FROM payment_history
-                WHERE status = 'succeeded'
+                WHERE status = 'succeeded' AND organization_id = ${getOrgId()}
                 ORDER BY year, month
             `;
 

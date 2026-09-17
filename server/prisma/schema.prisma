@@ -81,14 +81,38 @@ enum NotificationStatus {
 // MODELS
 // ============================================================================
 
+model Organization {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique
+  slug       String   @unique
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  users                  User[]
+  subscriptions          Subscription[]
+  paymentHistory         PaymentHistory[]
+  monthlyCategorySummary MonthlyCategorySummary[]
+  settings               Settings?
+  schedulerSettings      SchedulerSettings?
+  notificationSettings   NotificationSetting[]
+  notificationChannels   NotificationChannel[]
+  notificationHistory    NotificationHistory[]
+
+  @@map("organizations")
+}
+
 model Settings {
-  id                     Int      @id @default(1)
+  id                     Int      @id @default(autoincrement())
+  organization_id        Int      @unique
   currency               String   @default("INR")
   theme                  Theme    @default(system)
   show_original_currency Boolean  @default(true)
   language               Language @default(zh_CN)
   created_at             DateTime @default(now())
   updated_at             DateTime @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 
   @@map("settings")
 }
@@ -133,6 +157,7 @@ model PaymentMethod {
 
 model Subscription {
   id                Int                @id @default(autoincrement())
+  organization_id   Int
   name              String
   plan              String
   billing_cycle     BillingCycle
@@ -150,16 +175,19 @@ model Subscription {
   created_at        DateTime           @default(now())
   updated_at        DateTime           @updatedAt
 
+  organization        Organization          @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   category            Category              @relation(fields: [category_id], references: [id])
   paymentMethod       PaymentMethod         @relation(fields: [payment_method_id], references: [id])
   paymentHistory      PaymentHistory[]
   notificationHistory NotificationHistory[]
 
+  @@index([organization_id])
   @@map("subscriptions")
 }
 
 model PaymentHistory {
   id                   Int           @id @default(autoincrement())
+  organization_id      Int
   subscription_id      Int
   payment_date         DateTime      @db.Date
   amount_paid          Decimal       @db.Decimal(10, 2)
@@ -170,12 +198,15 @@ model PaymentHistory {
   notes                String?
   created_at           DateTime      @default(now())
 
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   subscription Subscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
 
+  @@index([organization_id])
   @@map("payment_history")
 }
 
 model MonthlyCategorySummary {
+  organization_id                Int
   year                          Int
   month                         Int
   category_id                   Int
@@ -184,21 +215,26 @@ model MonthlyCategorySummary {
   transactions_count            Int      @default(0)
   updated_at                    DateTime @updatedAt
 
-  category Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  category     Category     @relation(fields: [category_id], references: [id], onDelete: Cascade)
 
-  @@id([year, month, category_id])
+  @@id([organization_id, year, month, category_id])
   @@map("monthly_category_summary")
 }
 
 model User {
-  id            Int       @id @default(autoincrement())
-  username      String    @unique
-  password_hash String
-  role          UserRole  @default(admin)
-  last_login_at DateTime?
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
+  id              Int       @id @default(autoincrement())
+  organization_id Int
+  username        String
+  password_hash   String
+  role            UserRole  @default(admin)
+  last_login_at   DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
 
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, username])
   @@map("users")
 }
 
@@ -208,7 +244,8 @@ model User {
 
 model NotificationSetting {
   id                    Int              @id @default(autoincrement())
-  notification_type     NotificationType @unique
+  organization_id       Int
+  notification_type     NotificationType
   is_enabled            Boolean          @default(true)
   advance_days          Int?             @default(7)
   repeat_notification   Boolean          @default(false)
@@ -216,45 +253,63 @@ model NotificationSetting {
   created_at            DateTime         @default(now())
   updated_at            DateTime         @updatedAt
 
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, notification_type])
   @@map("notification_settings")
 }
 
 model NotificationChannel {
-  id             Int         @id @default(autoincrement())
-  channel_type   ChannelType @unique
-  channel_config String
-  is_active      Boolean     @default(true)
-  last_used_at   DateTime?
-  created_at     DateTime    @default(now())
-  updated_at     DateTime    @updatedAt
+  id              Int         @id @default(autoincrement())
+  organization_id Int
+  channel_type    ChannelType
+  channel_config  String
+  // Provider credentials (JSON string): { api_key } for whatsapp, { api_key, from, locale } for
+  // email. Nullable — absence means "not configured". Kept separate from channel_config because
+  // channel_config is returned verbatim to the browser by getChannelConfig(); this column must
+  // never be selected by that method, only by the dedicated credentials methods/endpoints.
+  credentials     String?
+  is_active       Boolean     @default(true)
+  last_used_at    DateTime?
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
 
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, channel_type])
   @@map("notification_channels")
 }
 
 model NotificationHistory {
-  id                Int                @id @default(autoincrement())
-  subscription_id   Int
-  notification_type String
-  channel_type      String
-  status            NotificationStatus
-  recipient         String
-  message_content   String
-  error_message     String?
-  sent_at           DateTime?
-  created_at        DateTime           @default(now())
+  id                 Int                @id @default(autoincrement())
+  organization_id    Int
+  subscription_id    Int
+  notification_type  String
+  channel_type       String
+  status             NotificationStatus
+  recipient          String
+  message_content    String
+  error_message      String?
+  sent_at            DateTime?
+  created_at         DateTime           @default(now())
 
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   subscription Subscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
 
+  @@index([organization_id])
   @@map("notification_history")
 }
 
 model SchedulerSettings {
-  id                      Int      @id @default(1)
+  id                      Int      @id @default(autoincrement())
+  organization_id         Int      @unique
   notification_check_time String   @default("09:00")
   timezone                String   @default("Asia/Shanghai")
   is_enabled              Boolean  @default(true)
   created_at              DateTime @default(now())
   updated_at              DateTime @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 
   @@map("scheduler_settings")
 }

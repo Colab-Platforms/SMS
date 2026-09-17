@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Save, Send, Check, X, MessageCircle, Settings, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { notificationApi, WhatsappConfigStatus, WhatsappSessionStatus } from '@/services/notificationApi';
+import { notificationApi, WhatsappConfigStatus, WhatsappSessionStatus, ChannelCredentialsStatus } from '@/services/notificationApi';
 import { useToast } from '@/hooks/use-toast';
 import { useNotificationStore } from '@/store/notificationStore';
 
@@ -57,6 +57,10 @@ export const WhatsappConfig: React.FC<WhatsappConfigProps> = ({ onConfigChange }
   const [testing, setTesting] = useState(false);
   const [configStatus, setConfigStatus] = useState<WhatsappConfigStatus | null>(null);
   const [sessionStatus, setSessionStatus] = useState<WhatsappSessionStatus | null>(null);
+  const [credentialsStatus, setCredentialsStatus] = useState<ChannelCredentialsStatus | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const [credentialsJustSaved, setCredentialsJustSaved] = useState(false);
 
   const rowValidity = useMemo(
     () => rows.map((row) => !row.value.trim() || phoneRegex.test(row.value.trim())),
@@ -103,10 +107,46 @@ export const WhatsappConfig: React.FC<WhatsappConfigProps> = ({ onConfigChange }
     }
   }, []);
 
+  const loadCredentialsStatus = useCallback(async () => {
+    try {
+      const status = await notificationApi.getChannelCredentialsStatus('whatsapp');
+      setCredentialsStatus((status as unknown as ChannelCredentialsStatus) || { configured: false, hasApiKey: false });
+    } catch (error) {
+      console.error('Failed to load WhatsApp credentials status:', error);
+      setCredentialsStatus({ configured: false, hasApiKey: false });
+    }
+  }, []);
+
   useEffect(() => {
     loadConfig();
     loadStatus();
-  }, [loadConfig, loadStatus]);
+    loadCredentialsStatus();
+  }, [loadConfig, loadStatus, loadCredentialsStatus]);
+
+  const handleSaveCredentials = async () => {
+    if (!apiKeyInput.trim()) return;
+
+    try {
+      setSavingCredentials(true);
+      await notificationApi.saveChannelCredentials('whatsapp', { api_key: apiKeyInput.trim() });
+      setApiKeyInput('');
+      setCredentialsJustSaved(true);
+      await loadCredentialsStatus();
+      await loadStatus();
+
+      toast({
+        title: t('credentials.credentialsSaved'),
+      });
+    } catch (error) {
+      console.error('Failed to save WhatsApp credentials:', error);
+      toast({
+        title: t('credentials.credentialsSaveError'),
+        variant: 'destructive'
+      });
+    } finally {
+      setSavingCredentials(false);
+    }
+  };
 
   const handleRowChange = (id: string, value: string) => {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, value } : row)));
@@ -227,6 +267,42 @@ export const WhatsappConfig: React.FC<WhatsappConfigProps> = ({ onConfigChange }
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Provider credentials (WasenderAPI key) — separate from recipients below */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>{t('credentials.apiKeyLabel')}</Label>
+            {credentialsStatus?.configured ? (
+              <Badge variant="default" className="bg-green-500">{t('configured')}</Badge>
+            ) : (
+              <Badge variant="secondary">{t('notConfigured')}</Badge>
+            )}
+          </div>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => {
+                setApiKeyInput(e.target.value);
+                setCredentialsJustSaved(false);
+              }}
+              placeholder={t('credentials.apiKeyPlaceholder')}
+              autoComplete="off"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSaveCredentials}
+              disabled={savingCredentials || credentialsJustSaved || !apiKeyInput.trim()}
+            >
+              {savingCredentials ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {t('credentials.saveCredentials')}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground whitespace-pre-line">
+            {t('credentials.apiKeyHelp')}
+          </p>
+        </div>
 
         {/* Phone number rows */}
         <div className="space-y-2">

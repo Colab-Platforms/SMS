@@ -2,6 +2,7 @@ const BaseRepository = require('../utils/BaseRepository');
 const MonthlyCategorySummaryService = require('./monthlyCategorySummaryService');
 const logger = require('../utils/logger');
 const { NotFoundError } = require('../middleware/errorHandler');
+const { getOrgId } = require('../lib/orgContext');
 
 /**
  * Payment History Service — manages payment_history table via Prisma + PostgreSQL.
@@ -85,6 +86,7 @@ class PaymentHistoryService extends BaseRepository {
                 AVG(CASE WHEN status = 'succeeded' THEN amount_paid END)::float    AS avg_payment_amount
             FROM payment_history
             WHERE payment_date >= ${startDate}::date AND payment_date <= ${endDate}::date
+                AND organization_id = ${getOrgId()}
             GROUP BY currency
             ORDER BY total_amount DESC
         `;
@@ -106,6 +108,7 @@ class PaymentHistoryService extends BaseRepository {
                 currency
             FROM payment_history
             WHERE payment_date >= ${startDate}::date AND payment_date <= ${endDate}::date
+                AND organization_id = ${getOrgId()}
             GROUP BY EXTRACT(MONTH FROM payment_date), currency
             ORDER BY month, currency
         `;
@@ -134,6 +137,7 @@ class PaymentHistoryService extends BaseRepository {
                 currency
             FROM payment_history
             WHERE payment_date >= ${startDate}::date AND payment_date <= ${endDate}::date
+                AND organization_id = ${getOrgId()}
             GROUP BY EXTRACT(MONTH FROM payment_date), currency
             ORDER BY month, currency
         `;

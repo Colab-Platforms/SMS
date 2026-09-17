@@ -1,5 +1,6 @@
 const BaseRepository = require('../utils/BaseRepository');
 const logger = require('../utils/logger');
+const { getOrgId } = require('../lib/orgContext');
 
 /**
  * Analytics Service — provides revenue and subscription statistics using Prisma + PostgreSQL.
@@ -21,6 +22,9 @@ class AnalyticsService extends BaseRepository {
             const conditions = [`ph.status = 'succeeded'`];
             const values     = [];
             let   idx        = 1;
+
+            conditions.push(`ph.organization_id = $${idx++}`);
+            values.push(getOrgId());
 
             if (start_date) {
                 conditions.push(`ph.payment_date >= $${idx++}::date`);
@@ -78,6 +82,7 @@ class AnalyticsService extends BaseRepository {
         const targetMonth = `${year}-${monthStr}`;
         const firstDay  = `${targetMonth}-01`;
         const lastDay   = new Date(year, month, 0).toISOString().split('T')[0];
+        const organizationId = getOrgId();
 
         try {
             const activeSubscriptions = await this.prisma.$queryRaw`
@@ -97,6 +102,7 @@ class AnalyticsService extends BaseRepository {
                 FROM subscriptions s
                 INNER JOIN payment_history ph ON s.id = ph.subscription_id
                 WHERE ph.status = 'succeeded'
+                    AND s.organization_id = ${organizationId}
                     AND (
                         (ph.billing_period_start <= ${new Date(lastDay)} AND ph.billing_period_end >= ${new Date(firstDay)}) OR
                         (ph.billing_period_start >= ${new Date(firstDay)} AND ph.billing_period_start <= ${new Date(lastDay)})

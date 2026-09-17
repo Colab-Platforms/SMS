@@ -177,5 +177,16 @@
     "saveError": "Failed to save email configuration",
     "active": "Email channel is active",
     "valid": "Email address looks good"
+  },
+  "credentials": {
+    "title": "Provider Credentials",
+    "apiKeyLabel": "API Key",
+    "apiKeyPlaceholder": "Enter API key",
+    "apiKeyHelp": "This is your own account's key for this company — leave blank to keep the currently saved key unchanged.",
+    "fromLabel": "From Address",
+    "fromPlaceholder": "notifications@yourdomain.com",
+    "saveCredentials": "Save Credentials",
+    "credentialsSaved": "Credentials saved",
+    "credentialsSaveError": "Failed to save credentials"
   }
 }

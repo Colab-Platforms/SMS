@@ -1,9 +1,11 @@
 const prisma = require('../lib/prisma');
 const { getBaseCurrency } = require('../config/currencies');
+const { getOrgId } = require('../lib/orgContext');
 
 /**
  * User Preference Service
- * Manages user language preferences and other settings via Prisma.
+ * Manages the current company's language/currency/theme preferences (stored
+ * on its Settings row) via Prisma.
  */
 class UserPreferenceService {
     constructor(prismaClient = null) {
@@ -12,11 +14,11 @@ class UserPreferenceService {
     }
 
     /**
-     * Get user language preference.
+     * Get the current company's language preference.
      */
     async getUserLanguage() {
         try {
-            const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
+            const settings = await this.prisma.settings.findFirst({});
             if (!settings) return 'zh_CN';
             return settings.language;
         } catch (error) {
@@ -26,7 +28,7 @@ class UserPreferenceService {
     }
 
     /**
-     * Set user language preference.
+     * Set the current company's language preference.
      */
     async setUserLanguage(language) {
         try {
@@ -37,14 +39,15 @@ class UserPreferenceService {
                 throw new Error(`Unsupported language: ${language}`);
             }
 
+            const organizationId = getOrgId();
             await this.prisma.settings.upsert({
-                where:  { id: 1 },
+                where:  { organization_id: organizationId },
                 update: { language: normalised },
                 create: {
-                    id:                    1,
-                    language:              normalised,
-                    currency:              getBaseCurrency(),
-                    theme:                 'system',
+                    organization_id:        organizationId,
+                    language:               normalised,
+                    currency:               getBaseCurrency(),
+                    theme:                  'system',
                     show_original_currency: true,
                 },
             });
@@ -58,37 +61,35 @@ class UserPreferenceService {
     }
 
     /**
-     * Get all user preferences (settings row).
+     * Get all preferences (the current company's settings row).
      */
-    async getUserPreferences(userId = 1) {
+    async getUserPreferences() {
         try {
-            const result = await this.prisma.settings.findUnique({ where: { id: userId } });
+            const result = await this.prisma.settings.findFirst({});
             if (!result) {
                 return {
-                    id:                    userId,
-                    currency:              getBaseCurrency(),
-                    theme:                 'system',
+                    currency:               getBaseCurrency(),
+                    theme:                  'system',
                     show_original_currency: true,
-                    language:              'zh_CN',
+                    language:               'zh_CN',
                 };
             }
             return result;
         } catch (error) {
             console.error('Error getting user preferences:', error);
             return {
-                id:                    userId,
-                currency:              getBaseCurrency(),
-                theme:                 'system',
+                currency:               getBaseCurrency(),
+                theme:                  'system',
                 show_original_currency: true,
-                language:              'zh_CN',
+                language:               'zh_CN',
             };
         }
     }
 
     /**
-     * Update user preferences.
+     * Update the current company's preferences.
      */
-    async updateUserPreferences(preferences, userId = 1) {
+    async updateUserPreferences(preferences) {
         try {
             const allowedFields = ['currency', 'theme', 'show_original_currency', 'language'];
             const updateData    = {};
@@ -110,15 +111,16 @@ class UserPreferenceService {
                 throw new Error('No valid fields to update');
             }
 
+            const organizationId = getOrgId();
             await this.prisma.settings.upsert({
-                where:  { id: userId },
+                where:  { organization_id: organizationId },
                 update: updateData,
                 create: {
-                    id:                    userId,
-                    currency:              preferences.currency              || getBaseCurrency(),
-                    theme:                 preferences.theme                 || 'system',
+                    organization_id:        organizationId,
+                    currency:               preferences.currency              || getBaseCurrency(),
+                    theme:                  preferences.theme                 || 'system',
                     show_original_currency: preferences.show_original_currency !== undefined ? Boolean(preferences.show_original_currency) : true,
-                    language:              (preferences.language || 'zh_CN').replace('-', '_'),
+                    language:               (preferences.language || 'zh_CN').replace('-', '_'),
                 },
             });
 

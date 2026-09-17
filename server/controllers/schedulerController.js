@@ -66,11 +66,10 @@ class SchedulerController {
         try {
             const status = this.notificationScheduler.getStatus();
             const settings = await this.notificationScheduler.getSchedulerSettings();
-            
+
             responseHelper.success(res, {
                 ...status,
                 settings,
-                currentSchedule: this.notificationScheduler.currentSchedule
             });
         } catch (error) {
             console.error('Error getting scheduler status:', error);
