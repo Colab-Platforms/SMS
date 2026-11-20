@@ -4,26 +4,24 @@ const prisma = require('../lib/prisma');
 const { runWithOrg, getOrgId } = require('../lib/orgContext');
 
 /**
- * Sends renewal/expiration notifications. Each company configures its own
- * check time/timezone (SchedulerSettings), but there is a single shared
- * sweep (not one cron job per company): every few minutes it loops over all
- * active companies and, for each one, checks whether that company's
- * configured time has arrived today — if so, it runs that company's
- * notification check, at most once per day.
+ * Sends renewal/expiration notifications. Runs once a day, at a fixed time,
+ * for every active company (per-company custom check time is no longer
+ * used — a single daily run keeps the database from being woken up every
+ * few minutes).
  */
 class NotificationScheduler {
     constructor() {
         this.prisma              = prisma;
         this.notificationService = new NotificationService(this.prisma);
         this.job                 = null;
-        // organizationId -> 'YYYY-MM-DD' it last ran for, so a company isn't
-        // processed more than once in the same day across ticks.
-        this.lastRunDateByOrg    = new Map();
     }
 
     start() {
-        this.job = cron.schedule('*/5 * * * *', () => this.tick(), { scheduled: true });
-        console.log('✅ Notification scheduler started (checks every 5 minutes, per-company schedule)');
+        this.job = cron.schedule('0 10 * * *', () => this.tick(), {
+            scheduled: true,
+            timezone: 'Asia/Kolkata',
+        });
+        console.log('✅ Notification scheduler started (runs daily at 10:00 AM IST)');
     }
 
     stop() {
@@ -35,37 +33,26 @@ class NotificationScheduler {
     }
 
     /**
-     * One sweep across every active company.
+     * One sweep across every active company, run once a day.
      */
     async tick() {
         try {
             const organizations = await this.prisma.raw.organization.findMany({ where: { is_active: true } });
             for (const org of organizations) {
-                await this.processOrgIfDue(org.id);
+                await this.processOrg(org.id);
             }
         } catch (error) {
             console.error('❌ Notification scheduler tick failed:', error);
         }
     }
 
-    async processOrgIfDue(organizationId) {
+    async processOrg(organizationId) {
         await runWithOrg(organizationId, async () => {
             const settings = await this.getSchedulerSettings();
             if (!settings.is_enabled) return;
 
-            const nowInTz  = new Date(new Date().toLocaleString('en-US', { timeZone: settings.timezone }));
-            const todayKey = `${nowInTz.getFullYear()}-${nowInTz.getMonth() + 1}-${nowInTz.getDate()}`;
-            if (this.lastRunDateByOrg.get(organizationId) === todayKey) return;
-
-            const [targetHour, targetMinute] = settings.notification_check_time.split(':').map(Number);
-            const currentMinutes = nowInTz.getHours() * 60 + nowInTz.getMinutes();
-            const targetMinutes  = targetHour * 60 + targetMinute;
-
-            if (currentMinutes >= targetMinutes) {
-                console.log(`🔔 Running notification check for organization ${organizationId} (configured ${settings.notification_check_time}, ${settings.timezone})`);
-                await this.checkAndSendNotifications();
-                this.lastRunDateByOrg.set(organizationId, todayKey);
-            }
+            console.log(`🔔 Running notification check for organization ${organizationId}`);
+            await this.checkAndSendNotifications();
         });
     }
 
